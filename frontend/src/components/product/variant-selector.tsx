@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { AddToCart } from "@/components/cart/add-to-cart"
 import { PriceDisplay } from "@/components/ui/price-display"
 import { cn } from "@/lib/utils/cn"
 import type { ProductVariant } from "@/types/catalog"
@@ -165,6 +166,10 @@ export function VariantSelector({ variants, className }: VariantSelectorProps) {
               quantity={selectedVariant.stockQuantity}
             />
             <p className="text-xs text-muted">SKU: {selectedVariant.sku}</p>
+            <AddToCart
+              variantId={selectedVariant.id}
+              stockQuantity={selectedVariant.stockQuantity}
+            />
           </div>
         ) : (
           <p className="text-sm text-muted">
