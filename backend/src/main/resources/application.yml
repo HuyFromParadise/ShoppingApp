@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: clothing
+  # SPRING_PROFILES_ACTIVE only takes effect as a real OS environment variable;
+  # inside .env it must be mapped explicitly, because the active profile is
+  # resolved before imported config data is applied.
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:default}
+  # Load the local .env file (gitignored) as a properties source.
+  # "optional:" keeps startup working when the file is absent.
+  # The [ .properties ] hint tells Spring to parse the extension-less file as .properties.
+  # Relative paths resolve against the working directory, so both are listed:
+  #   run from backend/  -> backend/.env
+  #   run from repo root -> backend/.env
+  config:
+    import: "optional:file:.env[.properties],optional:file:backend/.env[.properties]"
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/clothing?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${DB_USERNAME:clothing}
+    password: ${DB_PASSWORD:change-me-local-only}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: "0"
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+server:
+  port: ${PORT:8080}
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:false}

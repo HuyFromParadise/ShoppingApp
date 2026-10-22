@@ -1,0 +1,51 @@
+# ---- OS / editors ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.iml
+*.swp
+
+# ---- Secrets ----
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# ---- Java / Maven ----
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+!backend/.mvn/wrapper/maven-wrapper.properties
+*.class
+*.log
+
+# ---- Node / Next.js ----
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.turbo/
+frontend/next-env.d.ts
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ---- Uploads (local dev image storage) ----
+backend/uploads/
+!backend/uploads/.gitkeep
+
+# ---- Kilo / local tooling ----
+.kilo/
+# Playwright CLI output (may contain credentials)
+.playwright-cli/
+
+# ---- Superpowers scratch / plan ledger ----
+.superpowers/
+
+*.md
+.codegraph/
+.claude/

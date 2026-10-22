@@ -1,0 +1,16 @@
+# Test profile: integration tests run against a dedicated clothing_test schema (ADR-004).
+# Same JDBC config keys as the default profile, only the schema differs.
+# Inherits spring.config.import from application.yml, so backend/.env is loaded.
+spring:
+  datasource:
+    url: ${TEST_DB_URL:jdbc:mysql://localhost:3306/clothing_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${TEST_DB_USERNAME:clothing}
+    password: ${TEST_DB_PASSWORD:change-me-local-only}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: "0"
