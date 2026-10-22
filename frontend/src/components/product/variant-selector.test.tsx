@@ -1,5 +1,7 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
+import { ToastProvider } from "@/components/ui/toast"
 import type { ProductVariant } from "@/types/catalog"
 import { VariantSelector } from "./variant-selector"
 
@@ -36,9 +38,21 @@ const variants: ProductVariant[] = [
   },
 ]
 
+/** The selector renders the add-to-cart control, so it needs both providers. */
+function renderSelector(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>{ui}</ToastProvider>
+    </QueryClientProvider>,
+  )
+}
+
 describe("VariantSelector", () => {
   it("disables sold-out combinations and shows the selected variant details", () => {
-    render(<VariantSelector variants={variants} />)
+    renderSelector(<VariantSelector variants={variants} />)
 
     expect(screen.getByText("Select a colour")).toBeInTheDocument()
 
@@ -52,7 +66,7 @@ describe("VariantSelector", () => {
   })
 
   it("keeps unavailable options non-selectable", () => {
-    render(<VariantSelector variants={variants} />)
+    renderSelector(<VariantSelector variants={variants} />)
 
     const soldOut = screen.getByRole("button", { name: "Black" })
     const soldOutSize = screen.getByRole("button", { name: "M" })
@@ -65,9 +79,12 @@ describe("VariantSelector", () => {
 
   it("auto-selects a single available colour and size", () => {
     const single = variants.filter((variant) => variant.id === "v2")
-    render(<VariantSelector variants={single} />)
+    renderSelector(<VariantSelector variants={single} />)
 
     expect(screen.getByText(/TEE-BLK-L/)).toBeInTheDocument()
     expect(screen.getByText("Only 3 left")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Add to cart" }),
+    ).toBeInTheDocument()
   })
 })
