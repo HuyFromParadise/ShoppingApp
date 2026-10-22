@@ -6,6 +6,7 @@ import type {
   Paginated,
   PageEnvelope,
 } from "./types"
+import type { AuthResponse } from "@/types/auth"
 
 export const DEFAULT_API_BASE_URL = "http://localhost:8080/api/v1"
 
@@ -123,6 +124,18 @@ export function buildUrl(path: string, query?: QueryParams): string {
   return `${base}${base.includes("?") ? "&" : "?"}${serialized.slice(1)}`
 }
 
+/**
+ * True when the target lives on the API origin. The access token is only ever
+ * attached to the API, so an absolute URL can never leak it elsewhere.
+ */
+function isSameOrigin(url: string): boolean {
+  try {
+    return new URL(url).origin === new URL(API_BASE_URL).origin
+  } catch {
+    return false
+  }
+}
+
 async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json()
@@ -160,16 +173,49 @@ async function toApiError(response: Response): Promise<ApiError> {
   )
 }
 
-let refreshPromise: Promise<string | null> | null = null
+/**
+ * Paths that must never trigger the refresh flow: a 401 from login/register
+ * means bad credentials, and refreshing there would turn one failed attempt
+ * into two requests. `/auth/logout` and `/auth/me` are excluded on purpose —
+ * refreshing there revokes the stale refresh chain instead of leaking it.
+ */
+const NO_REFRESH_PATHS = new Set(["/auth/login", "/auth/register", "/auth/refresh"])
+
+/** Minimal shape of the Web Locks API used to serialise the refresh. */
+interface RefreshLockManager {
+  request<T>(name: string, callback: () => Promise<T>): Promise<T>
+}
+
+function refreshLocks(): RefreshLockManager | undefined {
+  if (typeof navigator === "undefined") return undefined
+  return (navigator as Navigator & { locks?: RefreshLockManager }).locks
+}
 
 /**
- * Refreshes the access token using the HttpOnly refresh cookie.
- * Concurrent 401s share one refresh request; the cookie is sent with credentials.
+ * Serialises the refresh across tabs. The refresh token rotates on every use,
+ * so two tabs refreshing at the same moment would present an already-rotated
+ * token and the backend would treat it as theft.
  */
-async function refreshAccessToken(): Promise<string | null> {
+function withRefreshLock<T>(run: () => Promise<T>): Promise<T> {
+  const locks = refreshLocks()
+  if (!locks) return run()
+  return locks.request("clothing-auth-refresh", run)
+}
+
+let refreshPromise: Promise<AuthResponse | null> | null = null
+
+/**
+ * Exchanges the HttpOnly refresh cookie for a new access token. One refresh
+ * runs at a time per tab, and the Web Locks API serialises it across tabs.
+ * The token is only dropped when nobody else replaced it meanwhile, so a
+ * failed refresh never discards a session established by a concurrent login.
+ */
+export async function refreshAccessToken(): Promise<AuthResponse | null> {
   if (refreshPromise) return refreshPromise
 
-  refreshPromise = (async () => {
+  const previousToken = tokenStore.get()
+
+  const run = async (): Promise<AuthResponse | null> => {
     try {
       const response = await fetch(buildUrl("/auth/refresh"), {
         method: "POST",
@@ -178,28 +224,27 @@ async function refreshAccessToken(): Promise<string | null> {
         cache: "no-store",
       })
       if (!response.ok) {
-        tokenStore.clear()
+        if (tokenStore.get() === previousToken) tokenStore.clear()
         return null
       }
       const payload = await readJson(response)
       const data = isRecord(payload) && "data" in payload ? payload.data : payload
-      const token =
-        isRecord(data) && typeof data.accessToken === "string"
-          ? data.accessToken
-          : null
-      if (!token) {
-        tokenStore.clear()
+      if (!isRecord(data) || typeof data.accessToken !== "string") {
+        if (tokenStore.get() === previousToken) tokenStore.clear()
         return null
       }
-      tokenStore.set(token)
-      return token
+      const auth = data as unknown as AuthResponse
+      tokenStore.set(auth.accessToken)
+      return auth
     } catch {
-      tokenStore.clear()
+      if (tokenStore.get() === previousToken) tokenStore.clear()
       return null
-    } finally {
-      refreshPromise = null
     }
-  })()
+  }
+
+  refreshPromise = withRefreshLock(run).finally(() => {
+    refreshPromise = null
+  })
 
   return refreshPromise
 }
@@ -233,13 +278,14 @@ async function send(
   // through module state in the Node runtime.
   const storedToken = typeof window === "undefined" ? null : tokenStore.get()
   const accessToken = skipAuth ? null : (token ?? storedToken)
-  if (accessToken) {
+  const target = buildUrl(path, query)
+  if (accessToken && isSameOrigin(target)) {
     headers.Authorization = `Bearer ${accessToken}`
   }
 
   let response: Response
   try {
-    response = await fetch(buildUrl(path, query), {
+    response = await fetch(target, {
       cache: "no-store",
       ...init,
       headers,
@@ -256,18 +302,18 @@ async function send(
     )
   }
 
-  const isAuthPath = path.startsWith("/auth/")
+  const noRefresh = NO_REFRESH_PATHS.has(path)
   if (
     response.status === 401 &&
     !retried &&
     !skipAuth &&
     !skipRefresh &&
-    !isAuthPath &&
+    !noRefresh &&
     typeof window !== "undefined"
   ) {
-    const refreshed = await refreshAccessToken()
-    if (refreshed) {
-      return send(path, { ...options, token: refreshed }, true)
+    const auth = await refreshAccessToken()
+    if (auth) {
+      return send(path, { ...options, token: auth.accessToken }, true)
     }
   }
 

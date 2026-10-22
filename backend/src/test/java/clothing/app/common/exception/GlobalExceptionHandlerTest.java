@@ -5,6 +5,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
@@ -59,6 +60,21 @@ class GlobalExceptionHandlerTest {
 .isNull();
 		assertThat(body.path())
 .isEqualTo("/api/v1/nope");
+	}
+
+	@Test
+	void malformedBodyIsAValidationError() {
+		HttpMessageNotReadableException ex = new HttpMessageNotReadableException("bad json");
+		GlobalExceptionHandler.ErrorBody body = handler.handleUnreadableBody(ex, request("/api/v1/account/addresses")).getBody();
+
+		assertThat(body.status())
+.isEqualTo(400);
+		assertThat(body.code())
+.isEqualTo(ErrorCode.VALIDATION_ERROR);
+		assertThat(body.message())
+.isEqualTo("Request validation failed");
+		assertThat(body.path())
+.isEqualTo("/api/v1/account/addresses");
 	}
 
 	@Test

@@ -119,6 +119,80 @@ describe("api client", () => {
     expect(tokenStore.get()).toBe("fresh-token")
   })
 
+  it("refreshes and retries a 401 on logout so the refresh chain is revoked", async () => {
+    tokenStore.set("expired-token")
+    const mock = stubFetch(
+      jsonResponse(
+        { status: 401, code: "UNAUTHENTICATED", message: "Authentication required" },
+        401,
+      ),
+      jsonResponse({ data: { accessToken: "fresh-token" }, message: "Success" }),
+      new Response(null, { status: 204 }),
+    )
+
+    await api.post("/auth/logout")
+
+    expect(mock).toHaveBeenCalledTimes(3)
+    expect(mock.mock.calls[1][0]).toBe(`${API_BASE_URL}/auth/refresh`)
+    const retryHeaders = mock.mock.calls[2][1]?.headers as Record<string, string>
+    expect(retryHeaders.Authorization).toBe("Bearer fresh-token")
+  })
+
+  it("never refreshes after a failed login", async () => {
+    const mock = stubFetch(
+      jsonResponse(
+        { status: 401, code: "UNAUTHENTICATED", message: "Invalid email or password" },
+        401,
+      ),
+    )
+
+    await expect(
+      api.post("/auth/login", { email: "huy@example.com", password: "wrong" }),
+    ).rejects.toMatchObject({ status: 401 })
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+
+  it("shares one refresh between concurrent 401 responses", async () => {
+    tokenStore.set("expired-token")
+    const mock = stubFetch(
+      jsonResponse(
+        { status: 401, code: "UNAUTHENTICATED", message: "Authentication required" },
+        401,
+      ),
+      jsonResponse(
+        { status: 401, code: "UNAUTHENTICATED", message: "Authentication required" },
+        401,
+      ),
+      jsonResponse({ data: { accessToken: "fresh-token" }, message: "Success" }),
+      jsonResponse({ data: { id: "u1" }, message: "Success" }),
+      jsonResponse({ data: { id: "u2" }, message: "Success" }),
+    )
+
+    const [first, second] = await Promise.all([
+      api.get<{ id: string }>("/orders"),
+      api.get<{ id: string }>("/cart"),
+    ])
+
+    expect(first).toEqual({ id: "u1" })
+    expect(second).toEqual({ id: "u2" })
+    // 2 rejected calls + 1 refresh + 2 retries
+    expect(mock).toHaveBeenCalledTimes(5)
+    const refreshCalls = mock.mock.calls.filter(
+      ([url]) => url === `${API_BASE_URL}/auth/refresh`,
+    )
+    expect(refreshCalls).toHaveLength(1)
+  })
+
+  it("never attaches the access token to another origin", async () => {
+    tokenStore.set("access-token")
+    const mock = stubFetch(jsonResponse({ data: { id: "p1" }, message: "Success" }))
+
+    await api.get<{ id: string }>("https://evil.example/steal")
+
+    const headers = mock.mock.calls[0][1]?.headers as Record<string, string>
+    expect(headers.Authorization).toBeUndefined()
+  })
+
   it("does not retry a 401 when the refresh fails", async () => {
     tokenStore.set("expired-token")
     stubFetch(

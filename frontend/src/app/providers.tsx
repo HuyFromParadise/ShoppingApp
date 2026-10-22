@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import * as React from "react"
 import { ToastProvider } from "@/components/ui/toast"
+import { SessionProvider } from "@/features/auth/session"
 import { ApiError } from "@/lib/api/client"
 
 function shouldRetry(failureCount: number, error: unknown): boolean {
@@ -32,7 +33,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ToastProvider>{children}</ToastProvider>
+      <SessionProvider>
+        <ToastProvider>{children}</ToastProvider>
+      </SessionProvider>
     </QueryClientProvider>
   )
 }

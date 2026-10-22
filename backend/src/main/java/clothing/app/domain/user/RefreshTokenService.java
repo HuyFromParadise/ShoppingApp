@@ -48,8 +48,12 @@ public class RefreshTokenService {
 		return raw;
 	}
 
-	/** Rotates the presented token; throws UNAUTHENTICATED when invalid, expired or replayed. */
-	@Transactional
+	/**
+	 * Rotates the presented token; throws UNAUTHENTICATED when invalid, expired or replayed.
+	 * A replay revokes the whole chain of that user; the revocation is committed
+	 * even though the request fails, so it survives the rollback of the throw.
+	 */
+	@Transactional(noRollbackFor = ApiException.Unauthenticated.class)
 	public Rotation rotate(String rawToken) {
 		RefreshTokenEntity current = load(rawToken);
 		if (current.getExpiresAt().isBefore(Instant.now())) {

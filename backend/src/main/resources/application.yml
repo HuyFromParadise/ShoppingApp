@@ -46,6 +46,10 @@ management:
         include: health
 springdoc:
   api-docs:
-    enabled: ${SPRINGDOC_ENABLED:false}
+    enabled: ${SPRINGDOC_ENABLED:true}
   swagger-ui:
-    enabled: ${SPRINGDOC_ENABLED:false}
+    enabled: ${SPRINGDOC_ENABLED:true}
+# The browser origin of the storefront. CORS allows only this origin and the
+# refresh cookie is only accepted from it, so it must match the URL the frontend
+# runs on. Without it the credentialed auth calls fail in the browser.
+FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:http://localhost:3000}

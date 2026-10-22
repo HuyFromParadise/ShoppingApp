@@ -86,7 +86,12 @@ public class AuthService {
 		return issue(user);
 	}
 
-	@Transactional
+	/**
+	 * The reuse-detection path revokes the refresh chain and then throws. A
+	 * rollback would undo that revocation, so the transaction is committed even
+	 * though the request fails: the stolen token has to die with the replay.
+	 */
+	@Transactional(noRollbackFor = ApiException.Unauthenticated.class)
 	public AuthResult refresh(String rawRefreshToken) {
 		RefreshTokenService.Rotation rotation = refreshTokenService.rotate(rawRefreshToken);
 		UserEntity user = rotation.user();
