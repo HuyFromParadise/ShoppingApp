@@ -82,10 +82,12 @@ public class AuthController {
 
 	@PostMapping("/logout")
 	@io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
-	public ResponseEntity<Void> logout(@CookieValue(name = REFRESH_COOKIE, required = false) String cookie) {
+	public ResponseEntity<Void> logout(@CookieValue(name = REFRESH_COOKIE, required = false) String cookie,
+			HttpServletResponse response) {
 		if (cookie != null) {
 			refreshTokenService.revokeChain(cookie);
 		}
+		expireRefreshCookie(response);
 		return ResponseEntity.noContent().build();
 	}
 
@@ -116,6 +118,18 @@ public class AuthController {
 			.sameSite("Lax")
 			.path("/api/v1/auth")
 			.maxAge(refreshTtl)
+			.build();
+		response.addHeader("Set-Cookie", cookie.toString());
+	}
+
+	/** Removes the refresh cookie from the browser when the session ends. */
+	private void expireRefreshCookie(HttpServletResponse response) {
+		ResponseCookie cookie = ResponseCookie.from(REFRESH_COOKIE, "")
+			.httpOnly(true)
+			.secure(isProd())
+			.sameSite("Lax")
+			.path("/api/v1/auth")
+			.maxAge(0)
 			.build();
 		response.addHeader("Set-Cookie", cookie.toString());
 	}

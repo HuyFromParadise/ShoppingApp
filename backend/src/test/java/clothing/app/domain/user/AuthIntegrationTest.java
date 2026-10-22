@@ -208,7 +208,8 @@ class AuthIntegrationTest {
 
 		mockMvc.perform(post("/api/v1/auth/logout")
 				.header("Authorization", "Bearer " + token).cookie(cookie))
-			.andExpect(status().isNoContent());
+			.andExpect(status().isNoContent())
+			.andExpect(cookie().maxAge("refresh_token", 0));
 
 		mockMvc.perform(post("/api/v1/auth/refresh").cookie(cookie))
 			.andExpect(status().isUnauthorized());

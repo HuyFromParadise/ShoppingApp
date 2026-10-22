@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { AccountMenu } from "./account-menu"
 import { MobileNavigation } from "./mobile-navigation"
 import { primaryNav } from "./nav-items"
 
@@ -36,6 +37,7 @@ export function SiteHeader() {
           >
             Cart
           </Link>
+          <AccountMenu />
           <MobileNavigation />
         </div>
       </div>

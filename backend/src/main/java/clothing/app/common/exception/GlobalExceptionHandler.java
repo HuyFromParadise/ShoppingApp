@@ -4,8 +4,11 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -22,6 +25,8 @@ import org.springframework.web.servlet.NoHandlerFoundException;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
 	@ExceptionHandler(ApiException.class)
 	public ResponseEntity<ErrorBody> handleApiException(ApiException ex, WebRequest request) {
@@ -78,9 +83,23 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
 	}
 
+	@ExceptionHandler(HttpMessageNotReadableException.class)
+	public ResponseEntity<ErrorBody> handleUnreadableBody(HttpMessageNotReadableException ex, WebRequest request) {
+		// A malformed body is a client error, not a server error.
+		ErrorBody body = ErrorBuilder.build(
+			ErrorCode.VALIDATION_ERROR,
+			400,
+			"Request validation failed",
+			null,
+			path(request)
+		);
+		return ResponseEntity.badRequest().body(body);
+	}
+
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<ErrorBody> handleInternal(Exception ex, WebRequest request) {
 		// Internal messages are logged, never returned.
+		log.error("Unhandled error on {}", path(request), ex);
 		ErrorBody body = ErrorBuilder.build(
 			ErrorCode.INTERNAL_ERROR,
 			500,

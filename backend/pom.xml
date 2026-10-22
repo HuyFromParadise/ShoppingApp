@@ -15,6 +15,9 @@
 	<description>Clothing shopping app backend</description>
 	<properties>
 		<java.version>17</java.version>
+		<!-- Must stay on 2.x: springdoc 3.x targets Spring Boot 4 and drags in
+			Boot 4 modules (spring-boot-webmvc, spring-boot-jackson, Jackson 3),
+			which are binary-incompatible with this Boot 3.3.5 / Spring 6.1 app. -->
 		<springdoc.version>2.6.0</springdoc.version>
 	</properties>
 	<dependencies>
