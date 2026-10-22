@@ -53,3 +53,17 @@ springdoc:
 # refresh cookie is only accepted from it, so it must match the URL the frontend
 # runs on. Without it the credentialed auth calls fail in the browser.
 FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:http://localhost:3000}
+
+# Checkout money rules. Fees are VND minor units (đồng) and are always computed
+# on the server; there is no carrier integration yet (PROJECT_SPEC §14), so this
+# is a simple two-option strategy. Change fees here, not in code.
+app:
+  checkout:
+    shipping:
+      methods:
+        - code: STANDARD
+          name: Standard delivery
+          fee-minor: 30000
+        - code: EXPRESS
+          name: Express delivery
+          fee-minor: 60000
