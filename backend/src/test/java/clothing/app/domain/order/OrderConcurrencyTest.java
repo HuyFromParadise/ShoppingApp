@@ -50,7 +50,7 @@ class OrderConcurrencyTest {
 	private final ExecutorService pool = Executors.newFixedThreadPool(4);
 
 	@Autowired
-	private OrderService orderService;
+	private OrderCreationService orderService;
 
 	@Autowired
 	private UserRepository userRepository;

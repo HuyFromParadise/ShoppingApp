@@ -13,8 +13,9 @@ import clothing.app.common.exception.ApiException;
  *
  * <p>Stock is deducted at order creation, never reserved: the conditional
  * update in {@link ProductVariantRepository#decrementStock} both checks and
- * writes, so concurrent checkouts cannot take the same unit. Release (restock)
- * belongs to cancellation and is added with the order workflow.
+ * writes, so concurrent checkouts cannot take the same unit. Release is the
+ * single cancellation path: because the stock was gone before payment, a
+ * cancelled order must put it back.
  */
 @Service
 @Transactional
@@ -28,12 +29,30 @@ public class InventoryService {
 
 	/** Decrements stock or fails the whole checkout transaction. */
 	public void decrement(String variantId, int quantity) {
-		if (quantity < 1) {
-			throw new IllegalArgumentException("Quantity to decrement must be positive");
-		}
+		requirePositive(quantity);
 		int updated = variantRepository.decrementStock(variantId, quantity, Instant.now());
 		if (updated != 1) {
 			throw new ApiException.OutOfStock("Not enough stock to complete the order");
+		}
+	}
+
+	/**
+	 * Puts stock back for a released order. The caller must already have moved
+	 * the order out of a holding status in this transaction, which is what keeps
+	 * the release idempotent (DESIGN_REFERENCE §7).
+	 */
+	public void release(String variantId, int quantity) {
+		requirePositive(quantity);
+		if (variantId == null) {
+			// A deleted variant (ON DELETE SET NULL) cannot take stock back.
+			return;
+		}
+		variantRepository.incrementStock(variantId, quantity, Instant.now());
+	}
+
+	private static void requirePositive(int quantity) {
+		if (quantity < 1) {
+			throw new IllegalArgumentException("Stock movement quantity must be positive");
 		}
 	}
 }

@@ -41,4 +41,15 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariantEn
 		+ "v.updatedAt = :updatedAt where v.id = :id and v.stockQuantity >= :quantity")
 	int decrementStock(@Param("id") String id, @Param("quantity") int quantity,
 		@Param("updatedAt") Instant updatedAt);
+
+	/**
+	 * Atomic stock release (ADR-005). Cancellation and returns restock through
+	 * this single statement; the order's own status check, done in the same
+	 * transaction, is what makes a double release impossible.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query("update ProductVariantEntity v set v.stockQuantity = v.stockQuantity + :quantity, "
+		+ "v.updatedAt = :updatedAt where v.id = :id")
+	int incrementStock(@Param("id") String id, @Param("quantity") int quantity,
+		@Param("updatedAt") Instant updatedAt);
 }

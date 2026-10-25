@@ -67,3 +67,20 @@ app:
         - code: EXPRESS
           name: Express delivery
           fee-minor: 60000
+  # Orders. Stock is deducted at creation (ADR-005), so an unpaid order holds a
+  # unit until it is cancelled: this window is when the sweep cancels it and
+  # restocks. The sweep cadence is intentionally coarse; it must be shorter than
+  # the window for stock to come back promptly.
+  orders:
+    payment-window-minutes: ${APP_ORDER_PAYMENT_WINDOW_MINUTES:30}
+    timeout-sweep-interval-ms: ${APP_ORDER_TIMEOUT_SWEEP_MS:60000}
+  # Payments (ADR-007). The mock gateway is always enabled and is clearly labelled
+  # in the API. VNPay is enabled only when all three VNPAY_* values are supplied;
+  # no credentials are committed. VNPAY_RETURN_URL is the storefront URL the
+  # provider redirects the browser to after payment.
+  payment:
+    public-base-url: ${APP_PAYMENT_PUBLIC_BASE_URL:http://localhost:8080/api/v1}
+    vnpay:
+      return-url: ${VNPAY_RETURN_URL:}
+      expire-minutes: ${VNPAY_EXPIRE_MINUTES:15}
+

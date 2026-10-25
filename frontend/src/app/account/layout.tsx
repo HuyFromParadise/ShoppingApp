@@ -6,6 +6,7 @@ import { RequireAuth } from "@/features/auth/route-guards"
 const accountNav = [
   { href: "/account/profile", label: "Profile" },
   { href: "/account/addresses", label: "Addresses" },
+  { href: "/account/orders", label: "Orders" },
 ]
 
 /**

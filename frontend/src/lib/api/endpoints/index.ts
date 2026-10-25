@@ -25,4 +25,20 @@ export const ENDPOINTS = {
   order: (orderId: string) => `/orders/${encodeURIComponent(orderId)}`,
   orderCancel: (orderId: string) =>
     `/orders/${encodeURIComponent(orderId)}/cancel`,
+  orderReturn: (orderId: string) =>
+    `/orders/${encodeURIComponent(orderId)}/return`,
+  checkout: {
+    quote: "/checkout/quote",
+  },
+  // The mock flow is the only enabled provider until VNPay is configured (ADR-007).
+  payments: {
+    order: (orderId: string) =>
+      `/payments/${encodeURIComponent(orderId)}`,
+    vnpayCreate: (orderId: string) =>
+      `/payments/${encodeURIComponent(orderId)}/vnpay/create`,
+    mockCreate: (orderId: string) =>
+      `/payments/${encodeURIComponent(orderId)}/mock/create`,
+    mockConfirm: (paymentId: string) =>
+      `/payments/mock/${encodeURIComponent(paymentId)}/confirm`,
+  },
 } as const

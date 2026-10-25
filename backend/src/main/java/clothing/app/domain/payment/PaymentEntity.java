@@ -83,5 +83,4 @@ public class PaymentEntity extends BaseEntity {
 
 	public enum Status {
 		PENDING, AUTHORIZED, PAID, FAILED, CANCELLED, REFUNDED
-	}
-}
+	}}

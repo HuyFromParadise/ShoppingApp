@@ -42,6 +42,10 @@ public class SecurityConfig {
 				// Swagger UI + OpenAPI JSON (endpoints only exist when SPRINGDOC_ENABLED=true)
 				.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
 					"/webjars/**").permitAll()
+				// Webhooks are called by the provider, not a signed-in user: they are
+				// public at the filter level and authenticated by their signature
+				// (DESIGN_REFERENCE §5.3, §6.3).
+				.requestMatchers(HttpMethod.POST, "/api/v1/payments/webhooks/*").permitAll()
 				.requestMatchers(HttpMethod.POST, "/api/v1/auth/register",
 					"/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/v1/products", "/api/v1/products/**",
