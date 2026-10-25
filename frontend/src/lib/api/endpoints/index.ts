@@ -41,4 +41,29 @@ export const ENDPOINTS = {
     mockConfirm: (paymentId: string) =>
       `/payments/mock/${encodeURIComponent(paymentId)}/confirm`,
   },
+  // Admin surface (DESIGN_REFERENCE §5.3, Phase 6). ADMIN-only server-side.
+  admin: {
+    products: "/admin/products",
+    product: (productId: string) =>
+      `/admin/products/${encodeURIComponent(productId)}`,
+    productVariants: (productId: string) =>
+      `/admin/products/${encodeURIComponent(productId)}/variants`,
+    productImages: (productId: string) =>
+      `/admin/products/${encodeURIComponent(productId)}/images`,
+    productImage: (productId: string, imageId: string) =>
+      `/admin/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageId)}`,
+    variant: (variantId: string) =>
+      `/admin/variants/${encodeURIComponent(variantId)}`,
+    variantStock: (variantId: string) =>
+      `/admin/variants/${encodeURIComponent(variantId)}/stock`,
+    categories: "/admin/categories",
+    category: (categoryId: string) =>
+      `/admin/categories/${encodeURIComponent(categoryId)}`,
+    orders: "/admin/orders",
+    order: (orderId: string) =>
+      `/admin/orders/${encodeURIComponent(orderId)}`,
+    orderStatus: (orderId: string) =>
+      `/admin/orders/${encodeURIComponent(orderId)}/status`,
+    dashboardSummary: "/admin/dashboard/summary",
+  },
 } as const

@@ -1,5 +1,6 @@
 package clothing.app.domain.order;
 
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
@@ -7,16 +8,20 @@ import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 /** Order persistence: reads, transitions and the payment-timeout sweep. */
-public interface OrderRepository extends JpaRepository<OrderEntity, String> {
+public interface OrderRepository
+		extends JpaRepository<OrderEntity, String>, JpaSpecificationExecutor<OrderEntity> {
+
+	/** Customers whose email starts with the search text, for admin order search. */
+	@Query("select u.id from UserEntity u where lower(u.email) like :pattern")
+	List<String> findUserIdsByEmailLike(@Param("pattern") String pattern);
 
 	Page<OrderEntity> findByUserIdOrderByPlacedAtDesc(String userId, Pageable pageable);
-
-	Page<OrderEntity> findAllByOrderByPlacedAtDesc(Pageable pageable);
 
 	Optional<OrderEntity> findByIdAndUserId(String id, String userId);
 

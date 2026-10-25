@@ -3,6 +3,7 @@ package clothing.app.catalog.product;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
 
@@ -52,4 +53,23 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariantEn
 		+ "v.updatedAt = :updatedAt where v.id = :id")
 	int incrementStock(@Param("id") String id, @Param("quantity") int quantity,
 		@Param("updatedAt") Instant updatedAt);
+
+	/* --- admin management (DESIGN_REFERENCE §5.3) --------------------------- */
+
+	/** Every variant of a product, active or not, for the admin detail view. */
+	List<ProductVariantEntity> findByProductIdOrderBySizeAscColorAsc(String productId);
+
+	/** Locks one variant so an absolute stock set cannot lose a concurrent write. */
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select v from ProductVariantEntity v where v.id = :id")
+	Optional<ProductVariantEntity> findByIdForUpdate(@Param("id") String id);
+
+	boolean existsBySku(String sku);
+
+	boolean existsBySkuAndIdNot(String sku, String id);
+
+	boolean existsByProductIdAndSizeAndColor(String productId, String size, String color);
+
+	boolean existsByProductIdAndSizeAndColorAndIdNot(String productId, String size,
+		String color, String id);
 }

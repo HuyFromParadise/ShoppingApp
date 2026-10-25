@@ -36,6 +36,14 @@ export function AccountMenu() {
       <span className="hidden text-sm text-muted sm:inline">
         {user ? user.firstName : null}
       </span>
+      {user?.role === "ADMIN" ? (
+        <Link
+          href="/admin"
+          className="text-sm text-ink transition-colors duration-150 hover:text-accent"
+        >
+          Admin
+        </Link>
+      ) : null}
       <button
         type="button"
         disabled={logoutMutation.isPending}

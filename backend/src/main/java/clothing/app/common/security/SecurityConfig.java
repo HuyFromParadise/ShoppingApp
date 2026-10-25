@@ -50,6 +50,9 @@ public class SecurityConfig {
 					"/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/v1/products", "/api/v1/products/**",
 					"/api/v1/categories", "/api/v1/categories/**").permitAll()
+				// Product images are public storefront assets (DESIGN_REFERENCE §3).
+				.requestMatchers(HttpMethod.GET, "/media/**").permitAll()
+				// ADMIN-only surface (DESIGN_REFERENCE §6.2).
 				.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 				.anyRequest().authenticated()
 			)

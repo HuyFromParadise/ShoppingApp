@@ -16,18 +16,29 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import clothing.app.domain.user.UserEntity;
+import clothing.app.domain.user.UserRepository;
+
 /**
  * Extracts the Bearer access token from the Authorization header, validates it,
  * and populates the SecurityContext. Invalid/absent tokens leave the context empty
  * (callers are rejected downstream by the filter chain).
+ *
+ * <p>The role is read from the token but the account is re-read here, so a
+ * locked or disabled user cannot keep acting for the token's 15-minute life and
+ * a role revoked in the database takes effect immediately
+ * (DESIGN_REFERENCE §6.1). This also keeps {@code @CurrentUser} from handing out
+ * a deleted account's id.
  */
-@Component 
+@Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	private final JwtService jwtService;
+	private final UserRepository userRepository;
 
-	public JwtAuthenticationFilter(JwtService jwtService) {
+	public JwtAuthenticationFilter(JwtService jwtService, UserRepository userRepository) {
 		this.jwtService = jwtService;
+		this.userRepository = userRepository;
 	}
 
 	@Override
@@ -35,25 +46,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		@NonNull HttpServletResponse response, @NonNull FilterChain filterChain)
 		throws ServletException, IOException {
 		final String authHeader = request.getHeader("Authorization");
-		final String jwt;
-		final String userId;
 
 		if (authHeader == null || !authHeader.startsWith("Bearer ")) {
 			filterChain.doFilter(request, response);
 			return;
 		}
 
-		jwt = authHeader.substring(7);
+		String jwt = authHeader.substring(7);
 		try {
-			if (jwtService.validateToken(jwt) && SecurityContextHolder.getContext().getAuthentication() == null) {
-				userId = jwtService.extractUserId(jwt);
-				String role = jwtService.extractRole(jwt);
-				UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-					userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
-				authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-				SecurityContextHolder.getContext().setAuthentication(authToken);
+			if (jwtService.validateToken(jwt)
+					&& SecurityContextHolder.getContext().getAuthentication() == null) {
+				String userId = jwtService.extractUserId(jwt);
+				UserEntity user = userRepository.findById(userId).orElse(null);
+				if (user != null && user.getStatus() == UserEntity.Status.ACTIVE) {
+					String role = user.getRole().name();
+					UsernamePasswordAuthenticationToken authToken =
+						new UsernamePasswordAuthenticationToken(userId, null,
+							List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+					authToken.setDetails(
+						new WebAuthenticationDetailsSource().buildDetails(request));
+					SecurityContextHolder.getContext().setAuthentication(authToken);
+				}
 			}
-		} catch (Exception e) {
+		}
+		catch (Exception e) {
 			SecurityContextHolder.clearContext();
 		}
 		filterChain.doFilter(request, response);

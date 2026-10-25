@@ -56,13 +56,6 @@ public class OrderService {
 		return toPage(orderRepository.findByUserIdOrderByPlacedAtDesc(userId, pageable), pageable);
 	}
 
-	/** Every customer's orders, newest first (admin list; Phase 6 adds filters). */
-	@Transactional(readOnly = true)
-	public PageResponse<OrderSummaryResponse> listAll(int page, int size) {
-		PageRequest pageable = PageRequest.of(validatePage(page), validateSize(size));
-		return toPage(orderRepository.findAllByOrderByPlacedAtDesc(pageable), pageable);
-	}
-
 	/** One order with items and history; another customer's order is a 404, not a 403. */
 	@Transactional(readOnly = true)
 	public OrderDetailResponse getOwn(String userId, String orderId) {
