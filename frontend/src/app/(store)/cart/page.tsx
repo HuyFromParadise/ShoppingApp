@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import * as React from "react"
 import Link from "next/link"
@@ -76,6 +76,9 @@ function CartView() {
   }
 
   const items = cart?.items ?? []
+  // Checkout re-validates everything, but sending the customer to a page that
+  // can only fail is worse than asking them to fix the cart first.
+  const hasUnavailable = items.some((item) => !item.available)
 
   function updateQuantity(itemId: string, quantity: number) {
     updateItem.mutate(
@@ -246,6 +249,28 @@ function CartView() {
               </div>
             </dl>
             <div className="mt-6 flex flex-col gap-3">
+              <Link
+                href="/checkout"
+                aria-disabled={hasUnavailable || undefined}
+                onClick={
+                  hasUnavailable
+                    ? (event) => {
+                        event.preventDefault()
+                        toast({
+                          title: "Remove the unavailable items first",
+                          description:
+                            "An item in your cart can no longer be bought.",
+                          variant: "error",
+                        })
+                      }
+                    : undefined
+                }
+                className={buttonVariants({
+                  className: hasUnavailable ? "cursor-not-allowed opacity-50" : undefined,
+                })}
+              >
+                Proceed to checkout
+              </Link>
               <Link
                 href="/shop"
                 className={buttonVariants({ variant: "secondary" })}

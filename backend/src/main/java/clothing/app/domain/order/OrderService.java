@@ -1,298 +1,138 @@
 package clothing.app.domain.order;
 
-import java.security.MessageDigest;import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.time.Instant;
-import java.util.HexFormat;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import clothing.app.common.exception.ApiException;
-import clothing.app.domain.address.AddressEntity;
-import clothing.app.domain.cart.CartItemRepository;
-import clothing.app.domain.checkout.CheckoutService;
-import clothing.app.domain.checkout.PricedCheckout;
-import clothing.app.domain.checkout.ShippingStrategy;
-import clothing.app.domain.inventory.InventoryService;
-import clothing.app.domain.order.dto.CreateOrderRequest;
+import clothing.app.common.response.PageResponse;
+import clothing.app.domain.order.OrderEntity.Status;
 import clothing.app.domain.order.dto.OrderAddressResponse;
+import clothing.app.domain.order.dto.OrderDetailResponse;
 import clothing.app.domain.order.dto.OrderItemResponse;
-import clothing.app.domain.order.dto.OrderResponse;
-import clothing.app.domain.payment.IdempotencyRecordEntity;
-import clothing.app.domain.payment.IdempotencyRecordRepository;
-import clothing.app.domain.payment.PaymentEntity;
-import clothing.app.domain.payment.PaymentRepository;
-import clothing.app.domain.user.UserRepository;
+import clothing.app.domain.order.dto.OrderStatusHistoryResponse;
+import clothing.app.domain.order.dto.OrderSummaryResponse;
+import clothing.app.domain.order.dto.UpdateOrderStatusRequest;
 
 /**
- * Order creation (DESIGN_REFERENCE §8): one transaction that prices the cart,
- * decrements stock atomically, snapshots the purchase and clears the cart.
- *
- * <p>The {@code Idempotency-Key} header makes retries safe: a completed key
- * replays the stored response, a reused key with a different request is a 409,
- * and a failed attempt stores nothing, so the customer can retry after fixing
- * the cart.
+ * Order reads and status changes by the customer and by an administrator
+ * (DESIGN_REFERENCE §5.3, §7). Ownership is checked here, never inferred from
+ * the URL, and every change goes through {@link OrderStatusService} so the
+ * state machine is the only way a status moves.
  */
 @Service
-@Transactional(isolation = Isolation.READ_COMMITTED)
 public class OrderService {
 
-	private static final String ORDER_NUMBER_PREFIX = "ORD-";
-	/** Crockford base32: no I, L, O or U, so numbers survive being read aloud. */
-	private static final String CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-	private static final int ORDER_NUMBER_RANDOM_LENGTH = 8;
-	private static final int CREATED_STATUS = 201;
-	/** ADR-007: the mock gateway is the only enabled provider until VNPAY_* is set. */
-	private static final String PAYMENT_PROVIDER = "MOCK";
-	private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[A-Za-z0-9_-]{8,80}");
-	private static final SecureRandom RANDOM = new SecureRandom();
+	public static final int DEFAULT_PAGE_SIZE = 20;
+	public static final int MAX_PAGE_SIZE = 48;
+	private static final int MAX_NOTE_LENGTH = 500;
 
-	private final CheckoutService checkoutService;
-	private final InventoryService inventoryService;
-	private final CartItemRepository cartItemRepository;
 	private final OrderRepository orderRepository;
 	private final OrderItemRepository orderItemRepository;
 	private final OrderStatusHistoryRepository historyRepository;
-	private final PaymentRepository paymentRepository;
-	private final IdempotencyRecordRepository idempotencyRepository;
-	private final UserRepository userRepository;
-	private final ObjectMapper objectMapper;
+	private final OrderStatusService orderStatusService;
 
-	public OrderService(
-		CheckoutService checkoutService,
-		InventoryService inventoryService,
-		CartItemRepository cartItemRepository,
-		OrderRepository orderRepository,
-		OrderItemRepository orderItemRepository,
-		OrderStatusHistoryRepository historyRepository,
-		PaymentRepository paymentRepository,
-		IdempotencyRecordRepository idempotencyRepository,
-		UserRepository userRepository,
-		ObjectMapper objectMapper) {
-		this.checkoutService = checkoutService;
-		this.inventoryService = inventoryService;
-		this.cartItemRepository = cartItemRepository;
+	public OrderService(OrderRepository orderRepository, OrderItemRepository orderItemRepository,
+			OrderStatusHistoryRepository historyRepository,
+			OrderStatusService orderStatusService) {
 		this.orderRepository = orderRepository;
 		this.orderItemRepository = orderItemRepository;
 		this.historyRepository = historyRepository;
-		this.paymentRepository = paymentRepository;
-		this.idempotencyRepository = idempotencyRepository;
-		this.userRepository = userRepository;
-		this.objectMapper = objectMapper;
+		this.orderStatusService = orderStatusService;
 	}
 
-	public OrderResponse create(String userId, String idempotencyKey,
-			CreateOrderRequest request) {
+	/* --- reads -------------------------------------------------------------- */
+
+	/** The signed-in customer's own orders, newest first. */
+	@Transactional(readOnly = true)
+	public PageResponse<OrderSummaryResponse> listOwn(String userId, int page, int size) {
 		requireUser(userId);
-		String key = requireIdempotencyKey(idempotencyKey);
-		String requestHash = hashOf(request);
-
-		OrderResponse replayed = replay(userId, key, requestHash);
-		if (replayed != null) {
-			return replayed;
-		}
-
-		// The cart's per-customer mutex (CartService). It also serialises two
-		// retries of this key, so only one of them can create the order.
-		userRepository.findByIdForUpdate(userId)
-			.orElseThrow(() -> new ApiException.Unauthenticated("Authentication required"));
-
-		replayed = replay(userId, key, requestHash);
-		if (replayed != null) {
-			return replayed;
-		}
-
-		PricedCheckout checkout = checkoutService.price(userId, request.addressId(),
-			request.shippingMethod(), request.promotionCode(), true);
-		for (PricedCheckout.Line line : checkout.lines()) {
-			inventoryService.decrement(line.variant().getId(), line.quantity());
-		}
-
-		OrderEntity order = saveOrder(userId, key, request, checkout);
-		List<OrderItemEntity> items = saveItems(order, checkout);
-		saveHistory(order, userId);
-		savePayment(order);
-		cartItemRepository.deleteByCartId(checkout.cartId());
-
-		OrderResponse response = toResponse(order, items);
-		idempotencyRepository.save(
-			record(userId, key, requestHash, writeResponse(response)));
-		return response;
+		PageRequest pageable = PageRequest.of(validatePage(page), validateSize(size));
+		return toPage(orderRepository.findByUserIdOrderByPlacedAtDesc(userId, pageable), pageable);
 	}
 
-	/* --- persistence -------------------------------------------------------- */
-
-	private OrderEntity saveOrder(String userId, String key, CreateOrderRequest request,
-			PricedCheckout checkout) {
-		AddressEntity address = checkout.address();
-		ShippingStrategy.Method shipping = checkout.shippingMethod();
-
-		OrderEntity order = new OrderEntity();
-		order.setOrderNumber(newOrderNumber());
-		order.setUserId(userId);
-		order.setStatus(OrderEntity.Status.PENDING_PAYMENT);
-		order.setPaymentStatus(OrderEntity.PaymentStatus.UNPAID);
-		order.setSubtotal(checkout.subtotalMinor());
-		order.setDiscountTotal(checkout.discountTotalMinor());
-		order.setShippingTotal(checkout.shippingTotalMinor());
-		order.setGrandTotal(checkout.grandTotalMinor());
-		order.setCurrency(checkout.currency());
-
-		// Snapshot the address: editing the address book later must not rewrite
-		// an order that was already placed.
-		order.setShipRecipientName(address.getRecipientName());
-		order.setShipPhone(address.getPhone());
-		order.setShipAddressLine1(address.getAddressLine1());
-		order.setShipAddressLine2(address.getAddressLine2());
-		order.setShipWard(address.getWard());
-		order.setShipDistrict(address.getDistrict());
-		order.setShipCityOrProvince(address.getCityOrProvince());
-		order.setShipPostalCode(address.getPostalCode());
-
-		order.setShippingMethodCode(shipping.code());
-		order.setShippingMethodName(shipping.name());
-		order.setCustomerNote(normalizeNote(request.customerNote()));
-		order.setIdempotencyKey(key);
-		order.setPlacedAt(Instant.now());
-		return orderRepository.save(order);
+	/** One order with items and history; another customer's order is a 404, not a 403. */
+	@Transactional(readOnly = true)
+	public OrderDetailResponse getOwn(String userId, String orderId) {
+		requireUser(userId);
+		OrderEntity order = orderRepository.findByIdAndUserId(orderId, userId)
+			.orElseThrow(OrderService::notFound);
+		return toDetail(order);
 	}
 
-	private List<OrderItemEntity> saveItems(OrderEntity order, PricedCheckout checkout) {
-		List<OrderItemEntity> items = checkout.lines().stream().map(line -> {
-			OrderItemEntity item = new OrderItemEntity();
-			item.setOrderId(order.getId());
-			item.setVariantId(line.variant().getId());
-			item.setProductNameSnapshot(line.product().getName());
-			item.setSkuSnapshot(line.variant().getSku());
-			item.setSizeSnapshot(line.variant().getSize());
-			item.setColorSnapshot(line.variant().getColor());
-			item.setImageUrlSnapshot(line.imageUrl());
-			item.setUnitPrice(line.unitPrice());
-			item.setQuantity(line.quantity());
-			item.setLineTotal(line.lineTotal());
-			return item;
-		}).toList();
-		return orderItemRepository.saveAll(items);
+	/** Admin view of any order. */
+	@Transactional(readOnly = true)
+	public OrderDetailResponse getAny(String orderId) {
+		OrderEntity order = orderRepository.findById(orderId)
+			.orElseThrow(OrderService::notFound);
+		return toDetail(order);
 	}
 
-	private void saveHistory(OrderEntity order, String actorUserId) {
-		OrderStatusHistoryEntity history = new OrderStatusHistoryEntity();
-		history.setOrderId(order.getId());
-		history.setFromStatus(null);
-		history.setToStatus(OrderEntity.Status.PENDING_PAYMENT);
-		history.setActorUserId(actorUserId);
-		history.setNote("Order placed");
-		historyRepository.save(history);
+	/* --- customer actions --------------------------------------------------- */
+
+	/** {@code PENDING_PAYMENT} or {@code CONFIRMED}; restocks and refunds if paid. */
+	@Transactional
+	public OrderDetailResponse cancelOwn(String userId, String orderId) {
+		requireUser(userId);
+		requireOwned(orderId, userId);
+		orderStatusService.transition(orderId, Status.CANCELLED, OrderStateMachine.Actor.CUSTOMER,
+			userId, "Cancelled by customer");
+		return toDetail(reload(orderId));
 	}
 
-	private void savePayment(OrderEntity order) {
-		PaymentEntity payment = new PaymentEntity();
-		payment.setOrderId(order.getId());
-		payment.setProvider(PAYMENT_PROVIDER);
-		payment.setAmount(order.getGrandTotal());
-		payment.setCurrency(order.getCurrency());
-		payment.setStatus(PaymentEntity.Status.PENDING);
-		paymentRepository.save(payment);
+	/** {@code SHIPPED} or {@code DELIVERED}; the admin then accepts or rejects it. */
+	@Transactional
+	public OrderDetailResponse requestReturn(String userId, String orderId) {
+		requireUser(userId);
+		requireOwned(orderId, userId);
+		orderStatusService.transition(orderId, Status.RETURN_REQUESTED,
+			OrderStateMachine.Actor.CUSTOMER, userId, "Return requested by customer");
+		return toDetail(reload(orderId));
 	}
 
-	/* --- idempotency -------------------------------------------------------- */
+	/* --- admin action ------------------------------------------------------- */
 
-	/** A completed attempt with the same key and request, or null. */
-	private OrderResponse replay(String userId, String key, String requestHash) {
-		return idempotencyRepository.findByUserIdAndIdempotencyKey(userId, key)
-			.map(record -> {
-				if (!record.getRequestHash().equals(requestHash)) {
-					throw new ApiException.IdempotencyKeyReused(
-						"This idempotency key was already used with a different request");
-				}
-				return readResponse(record);
-			})
-			.orElse(null);
+	/** Validates the transition against the state machine and its actor rules. */
+	@Transactional
+	public OrderDetailResponse changeStatusByAdmin(String orderId,
+			UpdateOrderStatusRequest request) {
+		Status to = OrderStateMachine.parse(request.status());
+		String note = normalizeNote(request.note());
+		orderStatusService.transition(orderId, to, OrderStateMachine.Actor.ADMIN, null,
+			note == null ? "Changed by administrator" : note);
+		return toDetail(reload(orderId));
 	}
 
-	private IdempotencyRecordEntity record(String userId, String key, String requestHash,
-			String responseBody) {
-		IdempotencyRecordEntity record = new IdempotencyRecordEntity();
-		record.setUserId(userId);
-		record.setIdempotencyKey(key);
-		record.setRequestHash(requestHash);
-		record.setStatusCode(CREATED_STATUS);
-		record.setResponseBody(responseBody);
-		return record;
+	/* --- helpers ------------------------------------------------------------ */
+
+	private void requireOwned(String orderId, String userId) {
+		// Ownership and the right to see the order are the same check: a customer
+		// must not be able to tell an existing order of someone else from a missing one.
+		orderRepository.findByIdAndUserId(orderId, userId).orElseThrow(OrderService::notFound);
 	}
 
-	private String hashOf(CreateOrderRequest request) {
-		try {
-			byte[] json = objectMapper.writeValueAsBytes(request);
-			return HexFormat.of().formatHex(
-				MessageDigest.getInstance("SHA-256").digest(json));
-		}
-		catch (JsonProcessingException | NoSuchAlgorithmException ex) {
-			throw new IllegalStateException("Could not hash the order request", ex);
-		}
+	private OrderEntity reload(String orderId) {
+		return orderRepository.findById(orderId).orElseThrow(OrderService::notFound);
 	}
 
-	private String writeResponse(OrderResponse response) {
-		try {
-			return objectMapper.writeValueAsString(response);
-		}
-		catch (JsonProcessingException ex) {
-			throw new IllegalStateException("Could not store the order response", ex);
-		}
-	}
+	private OrderDetailResponse toDetail(OrderEntity order) {
+		List<OrderItemEntity> items = orderItemRepository
+			.findByOrderIdOrderByCreatedAtAsc(order.getId());
+		List<OrderStatusHistoryResponse> history = historyRepository
+			.findByOrderIdOrderByCreatedAtAsc(order.getId())
+			.stream()
+			.map(row -> new OrderStatusHistoryResponse(
+				row.getFromStatus() == null ? null : row.getFromStatus().name(),
+				row.getToStatus().name(),
+				row.getNote(),
+				row.getCreatedAt()))
+			.toList();
 
-	private OrderResponse readResponse(IdempotencyRecordEntity record) {
-		try {
-			return objectMapper.readValue(record.getResponseBody(), OrderResponse.class);
-		}
-		catch (JsonProcessingException | IllegalArgumentException ex) {
-			throw new IllegalStateException("Stored idempotent response is unreadable", ex);
-		}
-	}
-
-	/* --- rules and response -------------------------------------------------- */
-
-	private static void requireUser(String userId) {
-		if (userId == null) {
-			throw new ApiException.Unauthenticated("Authentication required");
-		}
-	}
-
-	private static String requireIdempotencyKey(String key) {
-		if (key == null || key.isBlank()) {
-			throw new ApiException.Validation("Idempotency-Key header is required",
-				Map.of("Idempotency-Key", "Required"));
-		}
-		String trimmed = key.trim();
-		if (!IDEMPOTENCY_KEY.matcher(trimmed).matches()) {
-			throw new ApiException.Validation("Idempotency-Key is invalid",
-				Map.of("Idempotency-Key",
-					"Must be 8-80 characters of A-Z, a-z, 0-9, _ or -"));
-		}
-		return trimmed;
-	}
-
-	private static String newOrderNumber() {
-		StringBuilder number = new StringBuilder(ORDER_NUMBER_PREFIX);
-		for (int i = 0; i < ORDER_NUMBER_RANDOM_LENGTH; i++) {
-			number.append(CROCKFORD.charAt(RANDOM.nextInt(CROCKFORD.length())));
-		}
-		return number.toString();
-	}
-
-	private static String normalizeNote(String note) {
-		return note == null || note.isBlank() ? null : note.trim();
-	}
-
-	private static OrderResponse toResponse(OrderEntity order, List<OrderItemEntity> items) {
 		OrderAddressResponse address = new OrderAddressResponse(
 			order.getShipRecipientName(),
 			order.getShipPhone(),
@@ -303,21 +143,7 @@ public class OrderService {
 			order.getShipCityOrProvince(),
 			order.getShipPostalCode());
 
-		List<OrderItemResponse> lines = items.stream()
-			.map(item -> new OrderItemResponse(
-				item.getId(),
-				item.getVariantId(),
-				item.getProductNameSnapshot(),
-				item.getSkuSnapshot(),
-				item.getSizeSnapshot(),
-				item.getColorSnapshot(),
-				item.getImageUrlSnapshot(),
-				item.getUnitPrice(),
-				item.getQuantity(),
-				item.getLineTotal()))
-			.toList();
-
-		return new OrderResponse(
+		return new OrderDetailResponse(
 			order.getId(),
 			order.getOrderNumber(),
 			order.getStatus().name(),
@@ -332,6 +158,91 @@ public class OrderService {
 			address,
 			order.getCustomerNote(),
 			order.getPlacedAt(),
-			lines);
+			items.stream().map(OrderService::toItem).toList(),
+			history);
+	}
+
+	static OrderItemResponse toItem(OrderItemEntity item) {
+		return new OrderItemResponse(
+			item.getId(),
+			item.getVariantId(),
+			item.getProductNameSnapshot(),
+			item.getSkuSnapshot(),
+			item.getSizeSnapshot(),
+			item.getColorSnapshot(),
+			item.getImageUrlSnapshot(),
+			item.getUnitPrice(),
+			item.getQuantity(),
+			item.getLineTotal());
+	}
+
+	private Map<String, Integer> itemCounts(List<String> orderIds) {
+		if (orderIds.isEmpty()) {
+			return Map.of();
+		}
+		Map<String, Integer> counts = new HashMap<>();
+		for (OrderItemEntity item : orderItemRepository
+			.findByOrderIdInOrderByCreatedAtAsc(orderIds)) {
+			counts.merge(item.getOrderId(), item.getQuantity(), Integer::sum);
+		}
+		return counts;
+	}
+
+	private PageResponse<OrderSummaryResponse> toPage(Page<OrderEntity> orders,
+			PageRequest pageable) {
+		Map<String, Integer> itemCounts = itemCounts(
+			orders.getContent().stream().map(OrderEntity::getId).toList());
+		List<OrderSummaryResponse> rows = orders.getContent().stream()
+			.map(order -> new OrderSummaryResponse(
+				order.getId(),
+				order.getOrderNumber(),
+				order.getStatus().name(),
+				order.getPaymentStatus().name(),
+				order.getCurrency(),
+				order.getGrandTotal(),
+				itemCounts.getOrDefault(order.getId(), 0),
+				order.getPlacedAt()))
+			.toList();
+		return PageResponse.of(rows, pageable.getPageNumber(), pageable.getPageSize(),
+			orders.getTotalElements());
+	}
+
+
+	private static void requireUser(String userId) {
+		if (userId == null) {
+			throw new ApiException.Unauthenticated("Authentication required");
+		}
+	}
+
+	private static ApiException notFound() {
+		return new ApiException.NotFound("Order not found");
+	}
+
+	static int validatePage(int page) {
+		if (page < 0) {
+			throw new ApiException.Validation("Page must be zero or greater",
+				Map.of("page", "Must be 0 or greater"));
+		}
+		return page;
+	}
+
+	static int validateSize(int size) {
+		if (size < 1 || size > MAX_PAGE_SIZE) {
+			throw new ApiException.Validation("Page size must be between 1 and " + MAX_PAGE_SIZE,
+				Map.of("size", "Must be between 1 and " + MAX_PAGE_SIZE));
+		}
+		return size;
+	}
+
+	private static String normalizeNote(String note) {
+		if (note == null || note.isBlank()) {
+			return null;
+		}
+		String trimmed = note.trim();
+		if (trimmed.length() > MAX_NOTE_LENGTH) {
+			throw new ApiException.Validation("Note is too long",
+				Map.of("note", "Must be at most " + MAX_NOTE_LENGTH + " characters"));
+		}
+		return trimmed;
 	}
 }

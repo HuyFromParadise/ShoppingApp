@@ -20,14 +20,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Bucket4j in-memory, per-IP throttling on /auth/login and /auth/register
- * (DESIGN_REFERENCE §6.3; swap for Redis when scaling out).
+ * Bucket4j in-memory, per-IP throttling on /auth/login, /auth/register and the
+ * payment webhooks (DESIGN_REFERENCE §6.3; swap for Redis when scaling out).
  */
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
 
 	private static final Set<String> PROTECTED_PATHS = Set.of(
 		"/api/v1/auth/login", "/api/v1/auth/register");
+	private static final String WEBHOOK_PREFIX = "/api/v1/payments/webhooks/";
 
 	private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
 
@@ -49,7 +50,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
 	protected void doFilterInternal(@NonNull HttpServletRequest request,
 		@NonNull HttpServletResponse response, @NonNull FilterChain filterChain)
 		throws ServletException, IOException {
-		if (PROTECTED_PATHS.contains(request.getRequestURI())) {
+		if (PROTECTED_PATHS.contains(request.getRequestURI())
+				|| request.getRequestURI().startsWith(WEBHOOK_PREFIX)) {
 			Bucket bucket = buckets.computeIfAbsent(clientIp(request), ip -> newBucket());
 			if (!bucket.tryConsume(1)) {
 				writeRateLimited(response, request);

@@ -257,4 +257,33 @@ describe("cart page", () => {
       within(shirt).getByRole("button", { name: "Decrease quantity" }),
     ).toBeDisabled()
   })
+
+  it("leads to checkout when every line can be bought", async () => {
+    serverCart = cartOf([line()])
+    renderPage()
+
+    const checkout = await screen.findByRole("link", {
+      name: "Proceed to checkout",
+    })
+    expect(checkout).toHaveAttribute("href", "/checkout")
+    expect(checkout).not.toHaveAttribute("aria-disabled")
+  })
+
+  it("blocks checkout while a line is unavailable and says why", async () => {
+    serverCart = cartOf([line({ available: false, stockQuantity: 0 })])
+    renderPage()
+
+    const checkout = await screen.findByRole("link", {
+      name: "Proceed to checkout",
+    })
+    expect(checkout).toHaveAttribute("aria-disabled", "true")
+
+    fireEvent.click(checkout)
+
+    expect(
+      await screen.findByText("Remove the unavailable items first"),
+    ).toBeInTheDocument()
+    // the click must not navigate
+    expect(checkout).toHaveAttribute("href", "/checkout")
+  })
 })

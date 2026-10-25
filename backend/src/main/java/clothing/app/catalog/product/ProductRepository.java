@@ -11,4 +11,8 @@ public interface ProductRepository
 	extends JpaRepository<ProductEntity, String>, JpaSpecificationExecutor<ProductEntity> {
 
 	Optional<ProductEntity> findBySlugAndStatus(String slug, ProductEntity.Status status);
+
+	boolean existsBySlug(String slug);
+
+	long countByCategoryId(String categoryId);
 }
