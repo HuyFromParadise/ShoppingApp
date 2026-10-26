@@ -42,8 +42,7 @@ public class AdminImageService {
 	@Transactional
 	public List<AdminImageResponse> upload(String adminUserId, String productId, MultipartFile file,
 			String altText) {
-		ProductEntity product = productRepository.findById(productId)
-			.orElseThrow(() -> new ApiException.NotFound("Product not found"));
+		ProductEntity product = requireProduct(productId);
 
 		ImageStorage.StoredImage stored;
 		try {
@@ -53,6 +52,75 @@ public class AdminImageService {
 			throw new ApiException.Validation(ex.getMessage(), Map.of("file", ex.getMessage()));
 		}
 
+		return writeImageRow(adminUserId, product, stored, altText);
+	}
+
+	/**
+	 * Stores one image for a product that was just created, so a new product can
+	 * be saved with its first photograph in a single action instead of an
+	 * otherwise pointless round trip to the edit page.
+	 *
+	 * <p>Called from inside the create transaction: if the row cannot be written,
+	 * the caller persists nothing and the file is deleted again, so neither a
+	 * product without its image nor an orphaned file is left behind.
+	 */
+	@Transactional
+	public void attachToNewProduct(String adminUserId, ProductEntity product, MultipartFile file,
+			String altText) {
+		if (file == null || file.isEmpty()) {
+			return;
+		}
+		ImageStorage.StoredImage stored;
+		try {
+			stored = imageStorage.store(file);
+		}
+		catch (ImageStorage.ImageRejectedException ex) {
+			throw new ApiException.Validation(ex.getMessage(), Map.of("file", ex.getMessage()));
+		}
+		writeImageRow(adminUserId, product, stored, altText);
+	}
+
+	/**
+	 * Validates and stores a file, without touching the database.
+	 *
+	 * <p>Separating the two halves lets the create path finish all validation
+	 * before it persists anything, so a rejected file cannot leave a product
+	 * behind, while the row and the file stay in one transaction.
+	 */
+	public ImageStorage.StoredImage storeOrReject(MultipartFile file) {
+		if (file == null || file.isEmpty()) {
+			throw new ApiException.Validation("Choose an image file",
+				Map.of("file", "Choose an image file"));
+		}
+		try {
+			return imageStorage.store(file);
+		}
+		catch (ImageStorage.ImageRejectedException ex) {
+			throw new ApiException.Validation(ex.getMessage(), Map.of("file", ex.getMessage()));
+		}
+	}
+
+	/** Writes the row for an already-stored file. */
+	@Transactional
+	public void attachStored(String adminUserId, ProductEntity product,
+			ImageStorage.StoredImage stored, String altText) {
+		writeImageRow(adminUserId, product, stored, altText);
+	}
+
+	/** Deletes a stored file whose row was not written. */
+	public void discard(ImageStorage.StoredImage stored) {
+		if (stored != null) {
+			imageStorage.delete(stored.publicPath());
+		}
+	}
+
+	/**
+	 * Writes the image row and its audit entry. Shared by the standalone upload
+	 * and the create-time upload so both behave identically: first image becomes
+	 * primary, sort order continues, size and type already checked by storage.
+	 */
+	private List<AdminImageResponse> writeImageRow(String adminUserId, ProductEntity product,
+			ImageStorage.StoredImage stored, String altText) {
 		try {
 			List<ProductImageEntity> existing = imageRepository
 				.findByProductIdOrderByIsPrimaryDescSortOrderAsc(product.getId());
@@ -88,8 +156,7 @@ public class AdminImageService {
 
 	@Transactional
 	public void delete(String adminUserId, String productId, String imageId) {
-		ProductEntity product = productRepository.findById(productId)
-			.orElseThrow(() -> new ApiException.NotFound("Product not found"));
+		ProductEntity product = requireProduct(productId);
 		ProductImageEntity image = imageRepository.findById(imageId)
 			.filter(candidate -> candidate.getProductId().equals(product.getId()))
 			.orElseThrow(() -> new ApiException.NotFound("Image not found"));
@@ -109,6 +176,11 @@ public class AdminImageService {
 		imageStorage.delete(image.getStorageKey());
 		auditService.record(adminUserId, "product.image.delete", "PRODUCT", product.getId(),
 			Map.of("imageId", imageId));
+	}
+
+	private ProductEntity requireProduct(String productId) {
+		return productRepository.findById(productId)
+			.orElseThrow(() -> new ApiException.NotFound("Product not found"));
 	}
 
 	private static String trimToMax(String value, String fallback, int max) {

@@ -2,6 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 import * as React from "react"
+import { mediaUrl } from "@/lib/api/client"
 import { cn } from "@/lib/utils/cn"
 
 export interface ProductImageProps {
@@ -13,8 +14,10 @@ export interface ProductImageProps {
 }
 
 /**
- * Product imagery is currently a storage key from the catalog API. Until the
- * image-serving phase lands, failures fall back to a quiet neutral placeholder.
+ * Product imagery. The catalog API returns a storage key rooted at the backend
+ * (`/media/products/…`), so it is resolved through {@link mediaUrl} rather than
+ * being requested from the frontend origin, where the file does not exist.
+ * A missing or failing image falls back to a quiet neutral placeholder.
  */
 export function ProductImage({
   src,
@@ -24,12 +27,13 @@ export function ProductImage({
   sizes,
 }: ProductImageProps) {
   const [failed, setFailed] = React.useState(false)
+  const resolved = mediaUrl(src)
 
   React.useEffect(() => {
     setFailed(false)
   }, [src])
 
-  if (!src || failed) {
+  if (!resolved || failed) {
     return (
       <div
         role="img"
@@ -48,7 +52,7 @@ export function ProductImage({
 
   return (
     <img
-      src={src}
+      src={resolved}
       alt={alt}
       sizes={sizes}
       loading="lazy"

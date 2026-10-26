@@ -12,6 +12,7 @@ const adminNav = [
   { href: "/admin/products", label: "Products" },
   { href: "/admin/categories", label: "Categories" },
   { href: "/admin/inventory", label: "Inventory" },
+  { href: "/admin/promotions", label: "Promotions" },
   { href: "/admin/orders", label: "Orders" },
 ]
 

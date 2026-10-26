@@ -16,5 +16,8 @@ export default defineConfig({
     restoreMocks: true,
     clearMocks: true,
     css: false,
+    // The Playwright specs are driven by `npm run test:e2e`, not by Vitest; they
+    // import @playwright/test and would fail as unit suites.
+    exclude: ["**/node_modules/**", "**/.next/**", "e2e/**"],
   },
 })

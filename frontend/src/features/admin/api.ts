@@ -56,6 +56,31 @@ export function createProduct(input: CreateProductInput): Promise<AdminProductDe
   return api.post<AdminProductDetail>(ENDPOINTS.admin.products, input)
 }
 
+/**
+ * Creates a product and its first image in one multipart request.
+ *
+ * <p>Images can only be uploaded against an existing product id, so without
+ * this the new-product page could not attach a photograph at all. The product
+ * fields travel as a JSON `product` part and the file as `file`; the server
+ * validates the image before it writes anything, so a rejected file creates no
+ * product.
+ */
+export function createProductWithImage(
+  input: CreateProductInput,
+  file: File,
+  altText?: string,
+): Promise<AdminProductDetail> {
+  const body = new FormData()
+  // A Blob part is what makes Spring treat this as a part rather than a field.
+  body.append(
+    "product",
+    new Blob([JSON.stringify(input)], { type: "application/json" }),
+  )
+  body.append("file", file)
+  if (altText?.trim()) body.append("altText", altText.trim())
+  return api.post<AdminProductDetail>(ENDPOINTS.admin.products, body)
+}
+
 export function updateProduct(
   productId: string,
   input: UpdateProductInput,

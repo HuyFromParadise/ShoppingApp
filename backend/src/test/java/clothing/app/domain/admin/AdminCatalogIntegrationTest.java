@@ -179,6 +179,9 @@ class AdminCatalogIntegrationTest {
 			get("/api/v1/admin/categories"),
 			post("/api/v1/admin/categories").contentType(MediaType.APPLICATION_JSON)
 				.content("{}"),
+			get("/api/v1/admin/promotions"),
+			post("/api/v1/admin/promotions").contentType(MediaType.APPLICATION_JSON)
+				.content("{}"),
 			get("/api/v1/admin/orders"),
 			get("/api/v1/admin/dashboard/summary"));
 	}
@@ -507,6 +510,101 @@ class AdminCatalogIntegrationTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"parentId\":\"" + parentId + "\"}"))
 			.andExpect(status().isBadRequest());
+	}
+
+	/* --- create with an image -------------------------------------------------- */
+
+	/** The `product` form part the multipart create expects. */
+	private static MockMultipartFile productPart(String name, String categoryId, long price) {
+		String json = "{\"name\":\"" + name + "\",\"categoryId\":\"" + categoryId + "\","
+			+ "\"basePrice\":" + price + ","
+			+ "\"variants\":[{\"size\":\"M\",\"color\":\"Sand\",\"stockQuantity\":2}]}";
+		return new MockMultipartFile("product", "", "application/json", json.getBytes());
+	}
+
+	@Test
+	void createsAProductTogetherWithItsFirstImage() throws Exception {
+		mockMvc.perform(multipart("/api/v1/admin/products")
+				.file(productPart("Multipart Blazer", randomCategory(), 899000L))
+				.file(new MockMultipartFile("file", "blazer.png", "image/png", pngBytes()))
+				.param("altText", "A sand blazer")
+				.header("Authorization", "Bearer " + adminToken))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.name").value("Multipart Blazer"))
+			.andExpect(jsonPath("$.data.slug").value("multipart-blazer"))
+			.andExpect(jsonPath("$.data.variants.length()").value(1))
+			// the image is attached and primary, so the product is not created bare
+			.andExpect(jsonPath("$.data.images.length()").value(1))
+			.andExpect(jsonPath("$.data.images[0].url").value(
+				org.hamcrest.Matchers.matchesPattern("/media/products/[a-f0-9]{32}\\.png")))
+			.andExpect(jsonPath("$.data.images[0].primary").value(true))
+			.andExpect(jsonPath("$.data.images[0].altText").value("A sand blazer"));
+
+		try (Stream<Path> files = Files.list(MEDIA_DIR)) {
+			assertThat(files.count()).isEqualTo(1);
+		}
+	}
+
+	@Test
+	void createsAProductWithoutAnImageWhenNoFileIsSent() throws Exception {
+		mockMvc.perform(multipart("/api/v1/admin/products")
+				.file(productPart("No Photo Tee", randomCategory(), 199000L))
+				.header("Authorization", "Bearer " + adminToken))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.data.name").value("No Photo Tee"))
+			.andExpect(jsonPath("$.data.images.length()").value(0));
+
+		try (Stream<Path> files = Files.list(MEDIA_DIR)) {
+			assertThat(files.count()).isZero();
+		}
+	}
+
+	@Test
+	void aRejectedImageCreatesNoProductAtAll() throws Exception {
+		// Ask the database, not the persistence context: the request's own
+		// transaction has ended, and only the database can show whether a rolled
+		// back insert actually reached the table.
+		entityManager.flush();
+		long productsBefore = jdbcTemplate.queryForObject(
+			"select count(*) from products", Long.class);
+
+		mockMvc.perform(multipart("/api/v1/admin/products")
+				.file(productPart("Should Not Exist", randomCategory(), 199000L))
+				.file(new MockMultipartFile("file", "fake.jpg", "image/jpeg",
+					"<script>alert(1)</script>".getBytes()))
+				.header("Authorization", "Bearer " + adminToken))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.fieldErrors.file").isNotEmpty());
+
+		entityManager.clear();
+		// Neither a half-created product nor an orphaned file is left behind.
+		assertThat(jdbcTemplate.queryForObject("select count(*) from products", Long.class))
+			.isEqualTo(productsBefore);
+		assertThat(jdbcTemplate.queryForObject(
+			"select count(*) from products where name = 'Should Not Exist'", Integer.class))
+			.isZero();
+		try (Stream<Path> files = Files.list(MEDIA_DIR)) {
+			assertThat(files.count()).isZero();
+		}
+	}
+
+	@Test
+	void theMultipartCreateRejectsAnInvalidProductAndKeepsNoFile() throws Exception {
+		String invalid = "{\"categoryId\":\"" + randomCategory()
+			+ "\",\"basePrice\":0,\"variants\":[]}";
+
+		mockMvc.perform(multipart("/api/v1/admin/products")
+				.file(new MockMultipartFile("product", "", "application/json",
+					invalid.getBytes()))
+				.file(new MockMultipartFile("file", "x.png", "image/png", pngBytes()))
+				.header("Authorization", "Bearer " + adminToken))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+			.andExpect(jsonPath("$.fieldErrors.name").isNotEmpty());
+
+		try (Stream<Path> files = Files.list(MEDIA_DIR)) {
+			assertThat(files.count()).isZero();
+		}
 	}
 
 	/* --- images --------------------------------------------------------------- */

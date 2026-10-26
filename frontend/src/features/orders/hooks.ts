@@ -32,6 +32,7 @@ export const ORDER_KEYS = {
       "quote",
       input?.addressId ?? null,
       input?.shippingMethod ?? null,
+      input?.promotionCode ?? null,
     ] as const,
   payments: (orderId: string) => ["orders", "payments", orderId] as const,
 }

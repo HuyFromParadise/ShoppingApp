@@ -21,7 +21,9 @@ public record PricedCheckout(
 		long shippingTotalMinor,
 		long grandTotalMinor,
 		String currency,
-		ShippingStrategy.Method shippingMethod) {
+		ShippingStrategy.Method shippingMethod,
+		/** The promotion code that produced the discount, if any. */
+		String promotionCode) {
 
 	/** One cart line with the catalog price it is charged at. */
 	public record Line(
