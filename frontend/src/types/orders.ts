@@ -36,6 +36,8 @@ export function shippingMethodLabel(code: string | null | undefined): string {
 export interface QuoteInput {
   addressId: string
   shippingMethod: ShippingMethodCode
+  /** Optional promotion code; validated and applied by the server. */
+  promotionCode?: string
 }
 
 /** Server-computed totals. The client never adds these up itself. */
@@ -48,6 +50,8 @@ export interface CheckoutQuote {
   grandTotalMinor: number
   shippingMethodCode: string
   shippingMethodName: string
+  /** The code the server actually applied, if one was. */
+  promotionCode: string | null
 }
 
 export interface OrderAddress {

@@ -5,6 +5,7 @@ export interface NavItem {
 
 export const primaryNav: NavItem[] = [
   { href: "/shop", label: "Shop" },
+  { href: "/categories", label: "Categories" },
   { href: "/cart", label: "Cart" },
   { href: "/wishlist", label: "Wishlist" },
   { href: "/account/orders", label: "Orders" },

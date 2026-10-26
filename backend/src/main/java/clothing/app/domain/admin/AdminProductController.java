@@ -5,6 +5,7 @@ import java.util.List;
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -67,6 +68,23 @@ public class AdminProductController {
 			@CurrentUser String adminId, @Valid @RequestBody CreateProductRequest request) {
 		return ResponseEntity.status(HttpStatus.CREATED)
 			.body(ApiResponse.success(productService.create(adminId, request)));
+	}
+
+	/**
+	 * Creates a product and its first image in one multipart request, so the new
+	 * product page can upload a photograph instead of requiring a save followed
+	 * by a second trip to the editor. Every field except `file` arrives as a form
+	 * part; `variants` is a JSON array inside the `product` part.
+	 */
+	@PostMapping(value = "/products", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	public ResponseEntity<ApiResponse<AdminProductDetailResponse>> createWithImage(
+			@CurrentUser String adminId,
+			@Valid @RequestPart("product") CreateProductRequest request,
+			@RequestPart(value = "file", required = false) MultipartFile file,
+			@RequestParam(required = false) String altText) {
+		return ResponseEntity.status(HttpStatus.CREATED)
+			.body(ApiResponse.success(
+				productService.createWithImage(adminId, request, file, altText)));
 	}
 
 	@GetMapping("/products/{productId}")

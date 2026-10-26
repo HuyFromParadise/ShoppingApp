@@ -12,6 +12,7 @@ import { ErrorState } from "@/components/ui/error-state"
 import { Input } from "@/components/ui/input"
 import { PriceDisplay } from "@/components/ui/price-display"
 import { useAdminCategories, useAdminProducts } from "@/features/admin/hooks"
+import { mediaUrl } from "@/lib/api/client"
 import {
   PRODUCT_STATUSES,
   productStatusLabel,
@@ -71,10 +72,11 @@ function ProductsView() {
       render: (row) => (
         <div className="flex items-center gap-3">
           <div className="h-14 w-11 shrink-0 overflow-hidden border border-line bg-[#f5f3f0]">
-            {row.primaryImageUrl ? (
+            {mediaUrl(row.primaryImageUrl) ? (
+              // The key is backend-rooted, so it is resolved to the API origin.
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={row.primaryImageUrl}
+                src={mediaUrl(row.primaryImageUrl) as string}
                 alt=""
                 className="h-full w-full object-cover"
               />

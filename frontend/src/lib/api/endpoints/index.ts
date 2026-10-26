@@ -41,6 +41,14 @@ export const ENDPOINTS = {
     mockConfirm: (paymentId: string) =>
       `/payments/mock/${encodeURIComponent(paymentId)}/confirm`,
   },
+  // P1: wishlist, reviews and promotions (step 17).
+  wishlist: "/wishlist",
+  wishlistItem: (productId: string) =>
+    `/wishlist/items/${encodeURIComponent(productId)}`,
+  productReviews: (slug: string) =>
+    `/products/${encodeURIComponent(slug)}/reviews`,
+  productReviewEligibility: (slug: string) =>
+    `/products/${encodeURIComponent(slug)}/review-eligibility`,
   // Admin surface (DESIGN_REFERENCE §5.3, Phase 6). ADMIN-only server-side.
   admin: {
     products: "/admin/products",
@@ -65,5 +73,8 @@ export const ENDPOINTS = {
     orderStatus: (orderId: string) =>
       `/admin/orders/${encodeURIComponent(orderId)}/status`,
     dashboardSummary: "/admin/dashboard/summary",
+    promotions: "/admin/promotions",
+    promotion: (promotionId: string) =>
+      `/admin/promotions/${encodeURIComponent(promotionId)}`,
   },
 } as const

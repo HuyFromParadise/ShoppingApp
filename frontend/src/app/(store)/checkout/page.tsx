@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { ErrorState } from "@/components/ui/error-state"
+import { Input } from "@/components/ui/input"
 import { PriceDisplay } from "@/components/ui/price-display"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/toast"
@@ -44,6 +45,11 @@ export default function CheckoutPage() {
   const [shippingMethod, setShippingMethod] =
     React.useState<ShippingMethodCode>("STANDARD")
   const [note, setNote] = React.useState("")
+  // The code is only applied after an explicit submit, so a half-typed code
+  // never re-prices the cart (or rejects it) mid-keystroke.
+  const [promotionInput, setPromotionInput] = React.useState("")
+  const [promotionCode, setPromotionCode] = React.useState<string | null>(null)
+  const [promotionError, setPromotionError] = React.useState<string | null>(null)
 
   // One key per attempt. It is reused across retries of the same request and
   // replaced when the request changes, because the backend rejects a reused key
@@ -58,7 +64,11 @@ export default function CheckoutPage() {
   }, [addressId, addresses.data])
 
   const quoteInput: QuoteInput | null = addressId
-    ? { addressId, shippingMethod }
+    ? {
+        addressId,
+        shippingMethod,
+        promotionCode: promotionCode ?? undefined,
+      }
     : null
   const quote = useQuote(quoteInput)
 
@@ -72,6 +82,8 @@ export default function CheckoutPage() {
     const input: CreateOrderInput = {
       addressId,
       shippingMethod,
+      // The order must be placed with the same code the total was quoted for.
+      promotionCode: promotionCode ?? undefined,
       customerNote: note.trim() || undefined,
     }
     attempt.current ??= new CheckoutAttempt()
@@ -156,6 +168,10 @@ export default function CheckoutPage() {
   const list = addresses.data ?? []
   const unavailable = items.filter((item) => !item.available)
   const quoteProblem = quote.error ? describeQuoteError(quote.error) : null
+  // A rejected code is a field error on the code, not a failed quote: the
+  // totals are unaffected, so it is shown under the code field instead.
+  const promotionProblem =
+    quote.error instanceof ApiError ? quote.error.fieldErrors?.promotionCode : undefined
 
   return (
     <div className="container-store py-10 sm:py-14">
@@ -272,6 +288,66 @@ export default function CheckoutPage() {
           >
             Order summary
           </h2>
+
+          <form
+            className="mt-4 space-y-2 border-b border-line pb-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const code = promotionInput.trim()
+              if (!code) {
+                setPromotionCode(null)
+                setPromotionError(null)
+                return
+              }
+              setPromotionError(null)
+              setPromotionCode(code.toUpperCase())
+              // The quote re-runs with the new key and reports a bad code.
+            }}
+          >
+            <label
+              htmlFor="promotion-code"
+              className="block text-xs font-medium text-muted"
+            >
+              Promotion code
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="promotion-code"
+                value={promotionInput}
+                onChange={(event) => setPromotionInput(event.target.value)}
+                maxLength={40}
+                autoComplete="off"
+                placeholder="SAVE10"
+                aria-invalid={promotionProblem || promotionError ? true : undefined}
+                aria-describedby={
+                  promotionProblem || promotionError ? "promotion-error" : undefined
+                }
+              />
+              <Button type="submit" variant="secondary" size="sm">
+                Apply
+              </Button>
+            </div>
+            {promotionCode && quote.data?.promotionCode ? (
+              <p className="text-xs text-success" role="status">
+                {quote.data.promotionCode} applied.{" "}
+                <button
+                  type="button"
+                  className="text-ink underline underline-offset-4"
+                  onClick={() => {
+                    setPromotionCode(null)
+                    setPromotionInput("")
+                    setPromotionError(null)
+                  }}
+                >
+                  Remove
+                </button>
+              </p>
+            ) : (promotionProblem ?? promotionError) ? (
+              <p id="promotion-error" role="alert" className="text-xs text-accent">
+                {promotionProblem ?? promotionError}
+              </p>
+            ) : null}
+          </form>
 
           <div className="mt-4">
             {quote.isPending && quoteInput ? (

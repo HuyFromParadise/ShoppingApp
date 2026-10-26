@@ -10,6 +10,10 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
+  // Canonical and Open Graph URLs need an absolute base (project step: SEO).
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ?? "http://localhost:3000",
+  ),
   title: {
     default: "Clothing — Considered everyday wardrobe",
     template: "%s — Clothing",

@@ -125,6 +125,31 @@ export function buildUrl(path: string, query?: QueryParams): string {
 }
 
 /**
+ * Origin the backend serves static media from (`/media/**` on the API host,
+ * without the `/api/v1` prefix).
+ *
+ * Only the API *base path* (`/api/v1`) is stripped, never a last segment, so a
+ * base without the version (e.g. `http://localhost:8080`) keeps its path.
+ */
+export function apiOrigin(): string {
+  return API_BASE_URL.replace(/\/api(\/v\d+)?$/i, "")
+}
+
+/**
+ * Turns a stored image path into a URL the browser can load.
+ *
+ * <p>The API returns storage keys as root-relative paths (`/media/products/…`).
+ * Rendered as-is, the browser resolves them against the *frontend* origin, which
+ * has no such files — the image 404s. Absolute URLs and data URIs are returned
+ * unchanged so an object-store adapter needs no client change.
+ */
+export function mediaUrl(path: string | null | undefined): string | null {
+  if (!path) return null
+  if (/^(https?:|data:|blob:)/i.test(path)) return path
+  return `${apiOrigin()}${path.startsWith("/") ? "" : "/"}${path}`
+}
+
+/**
  * True when the target lives on the API origin. The access token is only ever
  * attached to the API, so an absolute URL can never leak it elsewhere.
  */

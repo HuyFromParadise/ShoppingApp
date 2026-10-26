@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 750" role="img" aria-label="LINEN SHIRT">
+  <rect width="600" height="750" fill="#EFEAE0"/>
+  <rect x="0" y="0" width="600" height="750" fill="none" stroke="#E5E2DD" stroke-width="2"/>
+  <text x="300" y="360" text-anchor="middle" fill="#111111" font-family="Inter, system-ui, sans-serif"
+        font-size="34" letter-spacing="2">LINEN SHIRT</text>
+  <text x="300" y="404" text-anchor="middle" fill="#111111" opacity="0.55"
+        font-family="Inter, system-ui, sans-serif" font-size="18" letter-spacing="3">DEMO IMAGE</text>
+</svg>

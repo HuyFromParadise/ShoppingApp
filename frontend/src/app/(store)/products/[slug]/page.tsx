@@ -7,6 +7,8 @@ import { SaleBadge } from "@/components/product/sale-badge"
 import { StockIndicator } from "@/components/product/stock-indicator"
 import { VariantSelector } from "@/components/product/variant-selector"
 import { PriceDisplay } from "@/components/ui/price-display"
+import { ProductReviews } from "@/features/wishlist/product-reviews"
+import { WishlistButton } from "@/features/wishlist/wishlist-button"
 import { ApiError } from "@/lib/api/client"
 import { getProduct } from "@/lib/api/endpoints/catalog"
 import type { ProductDetail } from "@/types/catalog"
@@ -34,6 +36,14 @@ export async function generateMetadata({
       description:
         product.shortDescription?.trim() ||
         `Shop ${product.name} at Clothing.`,
+      alternates: { canonical: `/products/${product.slug}` },
+      openGraph: {
+        title: product.name,
+        description: product.shortDescription?.trim() ?? undefined,
+        url: `/products/${product.slug}`,
+        type: "website",
+        images: product.images.slice(0, 1).map((image) => image.url),
+      },
     }
   } catch {
     return { title: titleFromSlug(slug) }
@@ -104,6 +114,10 @@ export default async function ProductPage({ params }: ProductPageProps) {
             <StockIndicator inStock={product.inStock} />
           </div>
 
+          <div className="mt-4">
+            <WishlistButton productId={product.id} productName={product.name} />
+          </div>
+
           <div className="mt-8 border-t border-line pt-8">
             <VariantSelector variants={product.variants} />
           </div>
@@ -142,8 +156,81 @@ export default async function ProductPage({ params }: ProductPageProps) {
               </dl>
             </section>
           ) : null}
+
+          <ProductReviews slug={product.slug} productName={product.name} />
         </div>
       </div>
+
+      <ProductStructuredData product={product} />
     </div>
   )
+}
+
+/**
+ * Structured data (Google's Product + BreadcrumbList) so the product shows up
+ * with its price and availability in search results. The JSON is serialized
+ * from server-side values only and escaped for the script context.
+ */
+function ProductStructuredData({ product }: { product: ProductDetail }) {
+  const availability = product.inStock
+    ? "https://schema.org/InStock"
+    : "https://schema.org/OutOfStock"
+  const productLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.name,
+    description: product.shortDescription ?? product.description ?? undefined,
+    sku: product.variants[0]?.sku,
+    image: product.images.map((image) => absoluteUrl(image.url)).filter(Boolean),
+    brand: { "@type": "Brand", name: "Clothing" },
+    offers: {
+      "@type": "Offer",
+      price: product.priceMinor,
+      priceCurrency: product.currency,
+      availability,
+      url: absoluteUrl(`/products/${product.slug}`),
+    },
+  }
+  const breadcrumbLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { name: "Home", item: absoluteUrl("/") },
+      { name: "Shop", item: absoluteUrl("/shop") },
+      { name: product.category.name, item: absoluteUrl(`/categories/${product.category.slug}`) },
+      { name: product.name },
+    ].map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.name,
+      ...(item.item ? { item: item.item } : {}),
+    })),
+  }
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: safeJson(productLd) }}
+      />
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: safeJson(breadcrumbLd) }}
+      />
+    </>
+  )
+}
+
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ?? "http://localhost:3000"
+
+function absoluteUrl(path: string): string {
+  return /^https?:\/\//i.test(path) ? path : `${SITE_URL}${path.startsWith("/") ? "" : "/"}${path}`
+}
+
+/** JSON for a script tag: `<` is escaped so a name can never close the tag. */
+function safeJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c")
 }

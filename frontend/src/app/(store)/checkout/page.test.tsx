@@ -128,7 +128,30 @@ function stubServer(options: {
       if (options.quoteError) {
         return Promise.resolve(options.quoteError.clone())
       }
-      const body = JSON.parse(String(init?.body)) as { shippingMethod: string }
+      const body = JSON.parse(String(init?.body)) as {
+        shippingMethod: string
+        promotionCode?: string
+      }
+      // The fake server knows one valid code, SAVE10, because that is all the
+      // promotion tests need; anything else is refused the way the API refuses it.
+      if (body.promotionCode && body.promotionCode !== "SAVE10") {
+        return Promise.resolve(
+          jsonResponse(
+            {
+              timestamp: "x",
+              status: 400,
+              code: "VALIDATION_ERROR",
+              message: "That promotion code is not valid",
+              fieldErrors: { promotionCode: "That promotion code is not valid" },
+            },
+            400,
+          ),
+        )
+      }
+      const discount = body.promotionCode === "SAVE10"
+        ? Math.round(options.cart.subtotalMinor * 0.1)
+        : 0
+      // Shipping is charged on the goods before the discount, like the backend.
       const totals = quoteFor(body.shippingMethod, options.cart.subtotalMinor)
       return Promise.resolve(
         jsonResponse({
@@ -136,14 +159,15 @@ function stubServer(options: {
             currency: "VND",
             itemCount: options.cart.itemCount,
             subtotalMinor: options.cart.subtotalMinor,
-            discountTotalMinor: 0,
+            discountTotalMinor: discount,
             shippingTotalMinor: totals.shippingTotalMinor,
-            grandTotalMinor: totals.grandTotalMinor,
+            grandTotalMinor: totals.grandTotalMinor - discount,
             shippingMethodCode: body.shippingMethod,
             shippingMethodName:
               body.shippingMethod === "EXPRESS"
                 ? "Express delivery"
                 : "Standard delivery",
+            promotionCode: body.promotionCode ?? null,
           },
           message: "Success",
         }),
@@ -338,5 +362,82 @@ describe("checkout page", () => {
       unknown
     >
     expect(body.customerNote).toBe("Leave at reception")
+  })
+
+  it("applies a valid promotion code and reflects it in the total", async () => {
+    stubServer({ cart: cartOf([line()]) })
+    renderPage()
+
+    await screen.findByText(/You will pay 1\.028\.000/)
+    fireEvent.change(screen.getByLabelText("Promotion code"), {
+      target: { value: "save10" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }))
+
+    // 998,000 - 99,800 discount + 30,000 shipping
+    expect((await screen.findAllByText(/928\.200/)).length).toBeGreaterThan(0)
+    expect(await screen.findByText(/SAVE10 applied/)).toBeInTheDocument()
+  })
+
+  it("shows why a promotion code was refused, on the code field", async () => {
+    stubServer({ cart: cartOf([line()]) })
+    renderPage()
+
+    await screen.findByText(/You will pay 1\.028\.000/)
+    fireEvent.change(screen.getByLabelText("Promotion code"), {
+      target: { value: "NOPE" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }))
+
+    expect(
+      (await screen.findAllByText("That promotion code is not valid")).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByLabelText("Promotion code")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    )
+  })
+
+  it("carries the applied code into the order request", async () => {
+    const server = stubServer({ cart: cartOf([line()]) })
+    renderPage()
+
+    await screen.findByText(/You will pay 1\.028\.000/)
+    fireEvent.change(screen.getByLabelText("Promotion code"), {
+      target: { value: "SAVE10" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }))
+    await screen.findByText(/SAVE10 applied/)
+
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }))
+    await waitFor(() => expect(orderPosts(server.mock)).toHaveLength(1))
+    const body = JSON.parse(String(orderPosts(server.mock)[0][1]?.body)) as Record<
+      string,
+      unknown
+    >
+    expect(body.promotionCode).toBe("SAVE10")
+  })
+
+  it("removes an applied code and re-prices without it", async () => {
+    const server = stubServer({ cart: cartOf([line()]) })
+    renderPage()
+
+    await screen.findByText(/You will pay 1\.028\.000/)
+    fireEvent.change(screen.getByLabelText("Promotion code"), {
+      target: { value: "SAVE10" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }))
+    await screen.findByText(/SAVE10 applied/)
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }))
+    expect(await screen.findByText(/You will pay 1\.028\.000/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Place order" }))
+    await waitFor(() => expect(orderPosts(server.mock)).toHaveLength(1))
+    const body = JSON.parse(String(orderPosts(server.mock)[0][1]?.body)) as Record<
+      string,
+      unknown
+    >
+    expect(body).not.toHaveProperty("promotionCode")
   })
 })

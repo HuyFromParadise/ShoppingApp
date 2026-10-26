@@ -105,7 +105,7 @@ public final class OrderWorkflowFixture {
 		return JsonPath.read(result.getResponse().getContentAsString(), "$.data.accessToken");
 	}
 
-	void addToCart(String token, String variantId, int quantity) throws Exception {
+	public void addToCart(String token, String variantId, int quantity) throws Exception {
 		mockMvc.perform(post("/api/v1/cart/items")
 				.header("Authorization", "Bearer " + token)
 				.contentType(MediaType.APPLICATION_JSON)

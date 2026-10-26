@@ -6,6 +6,7 @@ import {
   changeOrderStatus,
   createCategory,
   createProduct,
+  createProductWithImage,
   deleteProductImage,
   getDashboardSummary,
   getOrder,
@@ -21,6 +22,11 @@ import {
   type AdminOrderFilters,
   type AdminProductFilters,
 } from "./api"
+import {
+  createPromotion,
+  listPromotions,
+  updatePromotion,
+} from "./promotions-api"
 import type {
   AdminVariantInput,
   CreateCategoryInput,
@@ -29,6 +35,7 @@ import type {
   UpdateProductInput,
   UpdateVariantInput,
 } from "@/types/admin"
+import type { CreatePromotionInput, UpdatePromotionInput } from "@/types/p1"
 
 /**
  * Admin queries and mutations. Every mutation re-reads the affected list or
@@ -37,6 +44,7 @@ import type {
  */
 export const ADMIN_KEYS = {
   dashboard: ["admin", "dashboard"] as const,
+  promotions: ["admin", "promotions"] as const,
   products: (filters: AdminProductFilters) =>
     [
       "admin",
@@ -120,7 +128,19 @@ function useInvalidateProducts() {
 export function useCreateProduct() {
   const invalidate = useInvalidateProducts()
   return useMutation({
-    mutationFn: (input: CreateProductInput) => createProduct(input),
+    mutationFn: ({
+      input,
+      image,
+      altText,
+    }: {
+      input: CreateProductInput
+      /** Optional first photograph, sent in the same request as the product. */
+      image?: File | null
+      altText?: string
+    }) =>
+      image
+        ? createProductWithImage(input, image, altText)
+        : createProduct(input),
     onSuccess: (product) => invalidate(product.id),
   })
 }
@@ -214,6 +234,41 @@ export function useChangeOrderStatus(orderId: string) {
       void queryClient.invalidateQueries({ queryKey: ADMIN_KEYS.order(orderId) })
       void queryClient.invalidateQueries({ queryKey: ["admin", "orders"] })
       void queryClient.invalidateQueries({ queryKey: ADMIN_KEYS.dashboard })
+    },
+  })
+}
+
+
+export function usePromotions(enabled = true) {
+  return useQuery({
+    queryKey: ADMIN_KEYS.promotions,
+    queryFn: listPromotions,
+    enabled,
+  })
+}
+
+export function useCreatePromotion() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: CreatePromotionInput) => createPromotion(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ADMIN_KEYS.promotions })
+    },
+  })
+}
+
+export function useUpdatePromotion() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      promotionId,
+      input,
+    }: {
+      promotionId: string
+      input: UpdatePromotionInput
+    }) => updatePromotion(promotionId, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ADMIN_KEYS.promotions })
     },
   })
 }

@@ -1,0 +1,5 @@
+spring:
+  flyway:
+    # Demo only: the normal migration set plus the seed folder. Applied through
+    # the real Flyway path, so the app must restart once to pick it up.
+    locations: classpath:db/migration,classpath:db/seed

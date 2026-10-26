@@ -12,5 +12,7 @@ public record QuoteResponse(
 		long shippingTotalMinor,
 		long grandTotalMinor,
 		String shippingMethodCode,
-		String shippingMethodName) {
+		String shippingMethodName,
+		/** The promotion code that was applied, or null when none was. */
+		String promotionCode) {
 }

@@ -19,8 +19,10 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 import clothing.app.catalog.category.CategoryRepository;
+import clothing.app.catalog.image.ImageStorage;
 import clothing.app.catalog.product.ProductImageRepository;
 import clothing.app.catalog.product.ProductRepository;
 import clothing.app.catalog.product.ProductVariantRepository;
@@ -68,16 +70,19 @@ public class AdminProductService {
 	private final ProductImageRepository imageRepository;
 	private final CategoryRepository categoryRepository;
 	private final AuditService auditService;
+	private final AdminImageService imageService;
 
 	public AdminProductService(ProductRepository productRepository,
 			ProductVariantRepository variantRepository,
 			ProductImageRepository imageRepository,
-			CategoryRepository categoryRepository, AuditService auditService) {
+			CategoryRepository categoryRepository, AuditService auditService,
+			AdminImageService imageService) {
 		this.productRepository = productRepository;
 		this.variantRepository = variantRepository;
 		this.imageRepository = imageRepository;
 		this.categoryRepository = categoryRepository;
 		this.auditService = auditService;
+		this.imageService = imageService;
 	}
 
 	/* --- reads -------------------------------------------------------------- */
@@ -122,6 +127,16 @@ public class AdminProductService {
 
 	@Transactional
 	public AdminProductDetailResponse create(String adminUserId, CreateProductRequest request) {
+		ProductEntity product = insertProduct(adminUserId, request);
+		return toDetail(product, categoryOf(product.getCategoryId()).orElse(null));
+	}
+
+	/**
+	 * Validates and writes one product with its variants, and records the audit
+	 * entry. Kept separate from {@link #create} so the multipart create can write
+	 * the image row in the same unit of work without nesting transactional calls.
+	 */
+	private ProductEntity insertProduct(String adminUserId, CreateProductRequest request) {
 		CategoryEntity category = requireCategory(request.categoryId());
 		String slug = StringUtils.hasText(request.slug())
 			? request.slug().trim()
@@ -158,7 +173,7 @@ public class AdminProductService {
 		auditService.record(adminUserId, "product.create", "PRODUCT", product.getId(),
 			Map.of("slug", slug, "status", product.getStatus().name(),
 				"variantCount", variants.size()));
-		return toDetail(product, category);
+		return product;
 	}
 
 	@Transactional
@@ -223,6 +238,35 @@ public class AdminProductService {
 		return toDetail(product, categoryOf(product.getCategoryId()).orElse(null));
 	}
 
+	/**
+	 * Creates a product together with its first image (and optional alt text).
+	 *
+	 * <p>The image is validated and stored before anything is persisted: a
+	 * rejected file must not leave a half-created product behind, so the whole
+	 * call fails with the file's reason and nothing is written.
+	 */
+	@Transactional
+	public AdminProductDetailResponse createWithImage(String adminUserId, CreateProductRequest request,
+			MultipartFile image, String altText) {
+		if (image == null || image.isEmpty()) {
+			return create(adminUserId, request);
+		}
+		// The file is validated and stored BEFORE the product row is written. A
+		// rejected file then fails the request with nothing to roll back, which
+		// matters because {@link #create} joins this transaction and its
+		// transactional boundaries are method calls, not proxies — a rollback
+		// there would not undo an insert already made here.
+		ImageStorage.StoredImage stored = imageService.storeOrReject(image);
+		try {
+			ProductEntity product = insertProduct(adminUserId, request);
+			imageService.attachStored(adminUserId, product, stored, altText);
+			return toDetail(product, categoryOf(product.getCategoryId()).orElse(null));
+		}
+		catch (RuntimeException ex) {
+			imageService.discard(stored);
+			throw ex;
+		}
+	}
 	/* --- variants ----------------------------------------------------------- */
 
 	@Transactional

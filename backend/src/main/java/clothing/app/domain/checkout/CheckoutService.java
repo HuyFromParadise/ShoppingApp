@@ -1,5 +1,6 @@
 package clothing.app.domain.checkout;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -28,6 +29,7 @@ import clothing.app.domain.catalog.product.ProductImageEntity;
 import clothing.app.domain.catalog.product.ProductVariantEntity;
 import clothing.app.domain.checkout.dto.QuoteRequest;
 import clothing.app.domain.checkout.dto.QuoteResponse;
+import clothing.app.domain.promotion.PromotionService;
 
 /**
  * Authoritative checkout pricing (DESIGN_REFERENCE §5.3, §8).
@@ -51,6 +53,7 @@ public class CheckoutService {
 	private final ProductRepository productRepository;
 	private final ProductImageRepository imageRepository;
 	private final ShippingStrategy shippingStrategy;
+	private final PromotionService promotionService;
 
 	public CheckoutService(
 		CartRepository cartRepository,
@@ -59,7 +62,8 @@ public class CheckoutService {
 		ProductVariantRepository variantRepository,
 		ProductRepository productRepository,
 		ProductImageRepository imageRepository,
-		ShippingStrategy shippingStrategy) {
+		ShippingStrategy shippingStrategy,
+		PromotionService promotionService) {
 		this.cartRepository = cartRepository;
 		this.cartItemRepository = cartItemRepository;
 		this.addressRepository = addressRepository;
@@ -67,6 +71,7 @@ public class CheckoutService {
 		this.productRepository = productRepository;
 		this.imageRepository = imageRepository;
 		this.shippingStrategy = shippingStrategy;
+		this.promotionService = promotionService;
 	}
 
 	public QuoteResponse quote(String userId, QuoteRequest request) {
@@ -84,7 +89,6 @@ public class CheckoutService {
 	public PricedCheckout price(String userId, String addressId, String shippingMethod,
 			String promotionCode, boolean lockVariants) {
 		requireUser(userId);
-		requireNoPromotion(promotionCode);
 
 		AddressEntity address = addressRepository.findByIdAndUserId(addressId, userId)
 			.orElseThrow(() -> new ApiException.NotFound("Address not found"));
@@ -140,10 +144,16 @@ public class CheckoutService {
 		}
 
 		ShippingStrategy.Method shipping = shippingStrategy.resolve(shippingMethod);
-		long discount = 0L;
+		// The discount is computed from the server's own subtotal, after the
+		// catalog was re-validated, and never from anything the client sent
+		// (PROJECT_SPEC §7: "Validate all promotion conditions on the server").
+		PromotionService.AppliedPromotion promotion = promotionService.apply(promotionCode,
+			subtotal, Instant.now());
+		long discount = promotion.discountMinor();
 		long grandTotal = subtotal - discount + shipping.feeMinor();
 		return new PricedCheckout(cart.getId(), address, List.copyOf(lines), itemCount,
-			subtotal, discount, shipping.feeMinor(), grandTotal, currency, shipping);
+			subtotal, discount, shipping.feeMinor(), grandTotal, currency, shipping,
+			promotion.code());
 	}
 
 	private static QuoteResponse toQuote(PricedCheckout checkout) {
@@ -155,22 +165,14 @@ public class CheckoutService {
 			checkout.shippingTotalMinor(),
 			checkout.grandTotalMinor(),
 			checkout.shippingMethod().code(),
-			checkout.shippingMethod().name());
+			checkout.shippingMethod().name(),
+			checkout.promotionCode());
 	}
 
 	/* --- rules -------------------------------------------------------------- */
 
 	private static ApiException emptyCart() {
 		return new ApiException.Validation("Your cart is empty");
-	}
-
-	private static void requireNoPromotion(String promotionCode) {
-		// Promotions are P1 (DESIGN_REFERENCE §4). Reject rather than ignore, so
-		// the server never quotes a total it cannot honour.
-		if (promotionCode != null && !promotionCode.isBlank()) {
-			throw new ApiException.Validation("Promotion codes are not available yet",
-				Map.of("promotionCode", "Not available yet"));
-		}
 	}
 
 	private static void requirePurchasable(ProductEntity product, ProductVariantEntity variant) {
